@@ -286,6 +286,27 @@ def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatme
         y_ci_low = cluster_data.postDP_ccf_CI_low
         y_ci_high = cluster_data.postDP_ccf_CI_high
 
+        # Create the confidence interval as a single trace
+        # Combine x values (forward and backward) and y values (high and low)
+        x_combined = list(x_axis) + list(x_axis[::-1])  # x values forward then backward
+        y_combined = list(y_ci_high) + list(y_ci_low[::-1])  # high values then low values reversed
+
+        # Plot confidence interval as filled area
+        fig.add_trace(
+            go.Scatter(
+                x=x_combined,
+                y=y_combined,
+                fill='toself',
+                fillcolor=f'rgba({",".join(str(int(ClusterColors.get_hex_string(cluster)[i:i + 2], 16)) for i in (1, 3, 5))}, 0.2)',
+                # Convert hex to rgba with transparency
+                line=dict(color='rgba(255,255,255,0)'),  # Invisible line
+                showlegend=False,
+                legendgroup=f'Cluster {cluster}',
+                hoverinfo='skip'
+            ),
+            row=1, col=2
+        )
+
         # Mean CCF
         fig.add_trace(
             go.Scatter(
@@ -295,36 +316,6 @@ def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatme
                 line=dict(color=ClusterColors.get_hex_string(cluster)),
                 marker=dict(color=ClusterColors.get_hex_string(cluster)),
                 name=f'Cluster {cluster}',
-                legendgroup=f'Cluster {cluster}'
-            ),
-            row=1, col=2
-        )
-
-        # Confidence interval
-        fig.add_trace(
-            go.Scatter(
-                x=x_axis,
-                y=y_ci_high,
-                mode='lines',
-                line=dict(width=0),
-                fillcolor=ClusterColors.get_hex_string(cluster),
-                fill='tonexty',
-                opacity=0.1,
-                showlegend=False,
-                legendgroup=f'Cluster {cluster}'
-            ),
-            row=1, col=2
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=x_axis,
-                y=y_ci_low,
-                mode='lines',
-                line=dict(width=0),
-                fillcolor=ClusterColors.get_hex_string(cluster),
-                fill='tonexty',
-                opacity=0.1,
-                showlegend=False,
                 legendgroup=f'Cluster {cluster}'
             ),
             row=1, col=2
@@ -354,14 +345,12 @@ def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatme
     fig.update_yaxes(title_text="CCF", showgrid=True, gridcolor='lightgray', row=1, col=2)
 
     fig.update_layout(
-
         height=600,
         margin=dict(l=20, r=20, b=20, t=40),
         legend=dict(x=1.02, y=1)  # Legend outside
     )
 
     # Save to HTML
-
     return fig.to_html(full_html=False)
 
 
