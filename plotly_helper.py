@@ -1004,4 +1004,310 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
     return fig.to_html(full_html=False)
 
 
+def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_aft):
+    """
+    Plot MCMC models for each cluster dynamically and save the figure as an HTML file.
 
+    Parameters:
+        clusters (list): List of cluster indices to plot.
+        index_samples_model (slice): Slice object for indexing samples.
+    """
+    # Determine the number of rows and columns
+    num_clusters = len(clusters)
+    num_rows = (num_clusters + 1) // 2 + 3  # Ensure enough rows for clusters and histogram
+    num_cols = 2  # Two columns
+
+    # Define subplot specs
+    specs = []
+    # Add rows for cluster plots
+    for _ in range((num_clusters + 1) // 2):
+        specs.append([{'type': 'xy'}, {'type': 'xy'}])
+    # Add row for histograms
+    specs.append([{'type': 'xy'}, {'type': 'xy'}])
+    # Add rows for tables
+    specs.append([{'type': 'table', 'colspan': 2}, None])  # Growth table
+    specs.append([{'type': 'table', 'colspan': 2}, None])  # Decay table
+
+    # Create a subplot with dynamic rows and 2 columns
+    fig = make_subplots(
+        rows=num_rows, cols=num_cols,
+        subplot_titles=(
+                [f"MCMC Model Cluster {cluster}" for cluster in clusters] + ([""] if len(clusters) % 2 == 1 else []) +
+                ["Growth Rate Histogram"] + ['Decay Rate Histogram']
+
+        ),
+        specs=specs,
+        vertical_spacing=0.1,
+        row_heights=[1] * ((num_clusters + 1) // 2) + [1, 0.5, 0.5]  # Adjust table row heights
+    )
+
+    # Define the number of ticks and tick labels
+    tick_num = len(sample_list)
+    tick_list = ['T' + str(i) for i in range(tick_num)]
+
+    # Dictionary to store slopes
+    slopes_mcmc = {}
+
+    slopes_mcmc_decay = {}
+
+    # Loop through each cluster and plot MCMC models
+    for idx, cluster in enumerate(clusters, start=1):
+        row = (idx - 1) // 2 + 1  # Start from row 1
+        col = (idx - 1) % 2 + 1  # Alternate between columns 1 and 2
+
+        # Plot total WBC
+        x_year_selected = [i / 365 for i in np.array(times_sliced_aft)]
+        fig.add_trace(go.Scatter(
+            x=x_year_selected,
+            y=np.log(wbc_model),
+            mode='markers',
+            marker=dict(color='red'),
+            name='CLL count estimate'
+        ), row=row, col=col)
+
+        slopes_mcmc_decay[cluster] = []
+        slopes_mcmc[cluster] = []
+
+        # Plot subclones and MCMC iterations
+        for iter_idx in range(250):
+            x_year = [i / 365 for i in np.array(times_sample)]
+            y_sub = np.array(log_subclone_sample_mcmc_with_uniform_noise[cluster][iter_idx])
+            fig.add_trace(go.Scatter(
+                x=x_year,
+                y=y_sub,
+                mode='markers',
+                marker=dict(color=ClusterColors.get_hex_string(cluster), opacity=0.5),
+                showlegend=False
+            ), row=row, col=col)
+
+            # Create inputs and fit the model
+            X, y = create_inputs(times_sliced_aft, log_subclone_sample_mcmc_with_uniform_noise, iter_idx,
+                                 index_samples_model)
+            logsumexp_points = np.log(wbc_model)
+            model = MultiClusterLinearRegression(num_clusters, X, y)
+            model.fit(logsumexp_points)
+
+            # Store slopes
+            cluster_slopes = model.params[num_clusters:]
+            slopes_mcmc[cluster].append(cluster_slopes)
+
+            times_aft_tx_year = [i / 365 for i in times_aft_tx]
+
+            # Calculate decay rate
+            predicted = model.predict(times_aft_tx_year)[:, cluster - 1]
+
+            # Plot during treatment
+
+            tx_start_clones = y_sub[0]
+
+            if times_sample[1] > treatment_end:
+                times_during_tx = [0, treatment_end / 365]
+
+                slope_decay = (predicted[0] - y_sub[0]) / (treatment_end / 365)
+                slopes_mcmc_decay[cluster].append(slope_decay)
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=times_during_tx,
+                        y=[tx_start_clones, predicted[0]],
+                        mode='lines+markers',
+                        line=dict(color=ClusterColors.get_hex_string(cluster)),
+                        marker=dict(color=ClusterColors.get_hex_string(cluster)),
+                        showlegend=False
+                    ),
+                    row=row, col=col
+                )
+
+
+            else:
+
+                indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+                times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
+
+                if 0 in times_sample_during_tx:
+                    times_during_tx = times_sample_during_tx + [treatment_end]
+
+                else:
+                    times_during_tx = [0] + times_sample_during_tx + [treatment_end]
+
+                times_during_tx_year = [x / 365 for x in times_during_tx]
+
+                print(times_during_tx)
+
+                y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
+
+                print(
+                    f'cluster: {cluster}, iter:{iter_idx}, indices_sample_during_tx:{indices_sample_during_tx},y_sub_during_tx: {y_sub_during_tx}')
+
+                if 0 not in times_sample_during_tx:
+                    extrapolate_subclone_during_tx = [tx_start_clones] + y_sub_during_tx + [
+                        predicted[0]]
+                else:
+                    extrapolate_subclone_during_tx = y_sub_during_tx + [
+                        predicted[0]]
+
+                print(f'extrapolate_subclone_during_tx: {extrapolate_subclone_during_tx}')
+                linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+                slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
+
+                predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+                fig.add_trace(
+                    go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                               mode='lines',
+                               line=dict(color=ClusterColors.get_hex_string(cluster)), showlegend=False), row=row,
+                    col=col
+
+                )
+
+            # Plot predicted values
+            times_aft_tx_year = [i / 365 for i in times_aft_tx]
+            fig.add_trace(go.Scatter(
+                x=times_aft_tx_year,
+                y=model.predict(times_aft_tx_year)[:, cluster - 1],
+                mode='lines',
+                line=dict(dash='dash', color=ClusterColors.get_hex_string(cluster)),
+                showlegend=False
+            ), row=row, col=col)
+
+            # Plot logsumexp points
+            logsumexp_points_model = [logsumexp(yi) for yi in model.predict(times_aft_tx_year)]
+            fig.add_trace(go.Scatter(
+                x=times_aft_tx_year[1:],
+                y=logsumexp_points_model[1:],
+                mode='markers',
+                marker=dict(symbol='triangle-up', color='grey', opacity=0.5),
+                showlegend=False
+            ), row=row, col=col)
+
+        #         # Add secondary x-axis
+        #         x_axis = [i / 365 for i in times_sample]
+        #         fig.update_xaxes(tickvals=x_axis, ticktext=tick_list, row=row, col=col)
+        #         fig.update_xaxes(title_text="Time (years)", row=row, col=col, secondary_y=True)
+
+        # Add grid and labels
+        fig.update_xaxes(showgrid=True, row=row, col=col)
+        fig.update_yaxes(title_text="log WBC × 10^6 cells per ml", row=row, col=col)
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', row=row, col=col)
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', row=row, col=col)
+
+        # Add treatment annotations
+        for i, row_data in treatment_df.iterrows():
+            treatment_name = row_data.tx
+            start = row_data.tx_start / 365
+            end = treatment_end / 365
+            if np.isnan(end):
+                end = x_axis[-1]
+            fig.add_vrect(
+                x0=start, x1=end,
+                fillcolor="grey", opacity=0.5,
+                layer="below",
+                line_width=0,
+                annotation_text=treatment_name,
+                annotation_position="top left",
+                row=row, col=col
+            )
+
+    row_hist = num_rows - 2
+    # Plot histogram of slopes in the second last row
+    for cluster in clusters:
+        cluster_slopes_array = np.array(slopes_mcmc[cluster])
+        if cluster_slopes_array.ndim > 1:
+            # If slopes are multi-dimensional, take the appropriate dimension
+            cluster_slopes_flat = cluster_slopes_array[:, cluster - 1] if cluster_slopes_array.shape[
+                                                                              1] >= cluster else cluster_slopes_array.flatten()
+        else:
+            cluster_slopes_flat = cluster_slopes_array
+
+        fig.add_trace(go.Histogram(
+            x=cluster_slopes_flat,
+            name=f'Cluster {cluster}',
+            marker_color=ClusterColors.get_hex_string(cluster),
+            opacity=0.5,
+        ), row=row_hist, col=1)
+
+    for cluster in clusters:
+        fig.add_trace(
+            go.Histogram(
+                x=slopes_mcmc_decay[cluster],
+                name=f'Cluster {cluster} Decay',
+                marker_color=ClusterColors.get_hex_string(cluster),
+                opacity=0.5
+            ),
+            row=row_hist, col=2
+        )
+
+    # Calculate stats for growth rates
+    table_data_growth = []
+    for cluster in clusters:
+        cluster_slopes_array = np.array(slopes_mcmc[cluster])
+        if cluster_slopes_array.ndim > 1:
+            cluster_slopes_flat = cluster_slopes_array[:, cluster - 1] if cluster_slopes_array.shape[
+                                                                              1] >= cluster else cluster_slopes_array.flatten()
+        else:
+            cluster_slopes_flat = cluster_slopes_array
+
+        mean = np.mean(cluster_slopes_flat)
+        lower_ci = np.percentile(cluster_slopes_flat, 2.5)
+        upper_ci = np.percentile(cluster_slopes_flat, 97.5)
+        table_data_growth.append([f'Cluster {cluster}', f'{mean:.4f}', f'{lower_ci:.4f} to {upper_ci:.4f}'])
+
+    # Calculate stats for decay rates
+    table_data_decay = []
+    for cluster in clusters:
+        mean_decay = np.mean(slopes_mcmc_decay[cluster])
+        lower_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 2.5)
+        upper_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 97.5)
+        table_data_decay.append(
+            [f'Cluster {cluster}', f'{mean_decay:.4f}', f'{lower_ci_decay:.4f} to {upper_ci_decay:.4f}'])
+
+    # Add growth rate table
+    fig.add_trace(
+        go.Table(
+            header=dict(
+                values=['Cluster', 'Mean Growth Rate', '95% CI'],
+                fill_color='lightblue',
+                align='left'
+            ),
+            cells=dict(
+                values=list(zip(*table_data_growth)),
+                fill_color='white',
+                align='left'
+            )
+        ),
+        row=num_rows - 1, col=1
+    )
+
+    # Add decay rate table (last row)
+    fig.add_trace(
+        go.Table(
+            header=dict(
+                values=['Cluster', 'Mean Decay Rate', '95% CI'],
+                fill_color='lightgreen',
+                align='left'
+            ),
+            cells=dict(
+                values=list(zip(*table_data_decay)),
+                fill_color='white',
+                align='left'
+            )
+        ),
+        row=num_rows, col=1)
+
+    fig.update_xaxes(title_text="Growth Rate (slope)", row=row_hist, col=1)
+    fig.update_yaxes(title_text="Count", row=row_hist, col=1)
+
+    # Add axis labels for decay histogram
+    fig.update_xaxes(title_text="Decay Rate (slope)", row=row_hist, col=2)
+    fig.update_yaxes(title_text="Count", row=row_hist, col=2)
+
+    # Update layout
+    fig.update_layout(
+        title_text="MCMC Model Analysis",
+        showlegend=True,
+        #         width=1200,
+        height=400 * num_rows  # Adjust height dynamically based on the number of rows
+    )
+
+    # Return HTML content
+    return fig.to_html(full_html=False)
