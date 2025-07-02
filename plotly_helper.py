@@ -5,6 +5,8 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 from helper import *
+from scipy.special import logsumexp
+from scipy.optimize import minimize
 
 def create_html_file(plot_html_list, output_file="combined_plots.html"):
     """
@@ -198,6 +200,94 @@ def plot_tree_plotly(tree_df, tree_selected, edge_labels=None):
                     )
 
     return fig.to_html(full_html=False)
+
+
+def plot_ccf(df, times_sample, treatment_df, ):
+    """
+    Plots the CCF (Cancer Cell Fraction) data using Plotly.
+    Parameters:
+    - df: DataFrame containing CCF data.
+    - fig: Plotly figure object.
+    - row: Row position of the subplot.
+    - col: Column position of the subplot.
+    - times_sample: List of sample times.
+    - treatment: DataFrame containing treatment information.
+    - ClusterColors: Object to map cluster IDs to colors.
+    """
+
+    fig = go.Figure()
+    # Keep the necessary columns
+    cols = ['Sample_ID', 'Cluster_ID', 'postDP_ccf_mean', 'postDP_ccf_CI_low', 'postDP_ccf_CI_high']
+    df = df[cols]
+    cluster_list = df.Cluster_ID.unique().tolist()
+    number_samples = len(df.Sample_ID.unique())
+    # Create tick labels
+    tick_list = ['T' + str(i) for i in range(number_samples)]
+    x_axis = [i / 365 for i in times_sample]
+
+    # Plot each cluster
+    for cluster in cluster_list:
+        cluster_data = df[df.Cluster_ID == cluster]
+        y_mean = cluster_data.postDP_ccf_mean
+        y_ci_low = cluster_data.postDP_ccf_CI_low
+        y_ci_high = cluster_data.postDP_ccf_CI_high
+
+        # Create the confidence interval as a single trace
+        # Combine x values (forward and backward) and y values (high and low)
+        x_combined = list(x_axis) + list(x_axis[::-1])  # x values forward then backward
+        y_combined = list(y_ci_high) + list(y_ci_low[::-1])  # high values then low values reversed
+
+        # Plot confidence interval as filled area
+        fig.add_trace(
+            go.Scatter(
+                x=x_combined,
+                y=y_combined,
+                fill='toself',
+                fillcolor=f'rgba({",".join(str(int(ClusterColors.get_hex_string(cluster)[i:i + 2], 16)) for i in (1, 3, 5))}, 0.2)',
+                # Convert hex to rgba with transparency
+                line=dict(color='rgba(255,255,255,0)'),  # Invisible line
+                showlegend=False,
+                legendgroup=f'Cluster {cluster}',
+                hoverinfo='skip'
+            )
+        )
+
+        # Plot mean CCF
+        fig.add_trace(
+            go.Scatter(
+                x=x_axis,
+                y=y_mean,
+                mode='lines+markers',
+                line=dict(color=ClusterColors.get_hex_string(cluster)),
+                marker=dict(color=ClusterColors.get_hex_string(cluster)),
+                name=f'Cluster {cluster}',
+                legendgroup=f'Cluster {cluster}'
+            ),
+        )
+
+    # Add treatment information
+    for i, row_data in treatment_df.iterrows():
+        treatment_name = row_data.tx
+        start = row_data.tx_start / 365
+        end = row_data.tx_end / 365 if not np.isnan(row_data.tx_end) else max(x_axis)
+        fig.add_vrect(
+            x0=start, x1=end,
+            fillcolor="lightgray", opacity=0.2,
+            layer="below", line_width=0,
+            annotation_text=treatment_name, annotation_position="top left"
+        )
+
+    # Set axis labels and grid
+    fig.update_xaxes(title_text="Samples", )
+    fig.update_yaxes(title_text="CCF", )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', )
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', )
+
+    # Return html content
+    return fig.to_html(full_html=False)
+
+
+
 
 
 def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatment_df):
@@ -407,17 +497,64 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
 
         )
 
+    # # Plot treatment effects
+    # times_during_tx = [0, treatment_end / 365]
+    # tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
+    #
+    # for i in clusters:
+    #     fig.add_trace(
+    #         go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted_end_tx_clones[i - 1]],
+    #                    mode='lines+markers', name=f'Cluster {i} (treatment)',
+    #                    line=dict(color=ClusterColors.get_hex_string(i))),
+    #
+    #     )
+
     # Plot treatment effects
-    times_during_tx = [0, treatment_end / 365]
     tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
 
-    for i in clusters:
-        fig.add_trace(
-            go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted_end_tx_clones[i - 1]],
-                       mode='lines+markers', name=f'Cluster {i} (treatment)',
-                       line=dict(color=ClusterColors.get_hex_string(i))),
+    if times_sample[1] > treatment_end:
+        times_during_tx = [0, treatment_end / 365]
 
-        )
+        for i in clusters:
+            fig.add_trace(
+                go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted_end_tx_clones[i - 1]],
+                           mode='lines+markers', name=f'Cluster {i} (treatment)',
+                           line=dict(color=ClusterColors.get_hex_string(i))),
+
+            )
+    else:
+        indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+        times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
+
+        if 0 in times_sample_during_tx:
+            times_during_tx = times_sample_during_tx + [treatment_end]
+
+        else:
+            times_during_tx = [0] + times_sample_during_tx + [treatment_end]
+
+        times_during_tx_year = [x / 365 for x in times_during_tx]
+
+        for i in clusters:
+            y_sub = np.array(log_subclone_sample[i])
+
+            y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
+
+            if 0 not in times_sample_during_tx:
+                extrapolate_subclone_during_tx = [tx_start_clones[i - 1]] + y_sub_during_tx + [
+                    predicted_end_tx_clones[i - 1]]
+            else:
+                extrapolate_subclone_during_tx = y_sub_during_tx + [predicted_end_tx_clones[i - 1]]
+
+            linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+
+            predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+            fig.add_trace(
+                go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                           mode='lines', name=f'Cluster {i} (treatment)',
+                           line=dict(color=ClusterColors.get_hex_string(i))),
+
+            )
 
     # Add treatment annotations
     for i, row in treatment_df.iterrows():
@@ -543,19 +680,74 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
             )
 
             # Plot during treatment
-            times_during_tx = [0, treatment_end / 365]
             tx_start_clones = y_sub[0]
-            fig.add_trace(
-                go.Scatter(
-                    x=times_during_tx,
-                    y=[tx_start_clones, predicted[0]],
-                    mode='lines+markers',
-                    line=dict(color=ClusterColors.get_hex_string(cluster)),
-                    marker=dict(color=ClusterColors.get_hex_string(cluster)),
-                    showlegend=False
-                ),
-                row=row, col=col
-            )
+
+            if times_sample[1] > treatment_end:
+                times_during_tx = [0, treatment_end / 365]
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=times_during_tx,
+                        y=[tx_start_clones, predicted[0]],
+                        mode='lines+markers',
+                        line=dict(color=ClusterColors.get_hex_string(cluster)),
+                        marker=dict(color=ClusterColors.get_hex_string(cluster)),
+                        showlegend=False
+                    ),
+                    row=row, col=col
+                )
+
+            else:
+                indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+                times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
+
+                if 0 in times_sample_during_tx:
+                    times_during_tx = times_sample_during_tx + [treatment_end]
+
+                else:
+                    times_during_tx = [0] + times_sample_during_tx + [treatment_end]
+
+                times_during_tx_year = [x / 365 for x in times_during_tx]
+
+                y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
+
+                if 0 not in times_sample_during_tx:
+                    extrapolate_subclone_during_tx = [tx_start_clones] + y_sub_during_tx + [
+                        predicted[0]]
+                else:
+                    extrapolate_subclone_during_tx = y_sub_during_tx + [
+                        predicted[0]]
+
+                linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+                slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
+
+                predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+                fig.add_trace(
+                    go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                               mode='lines',
+                               line=dict(color=ClusterColors.get_hex_string(cluster)), showlegend=False), row=row,
+                    col=col
+
+                )
+
+
+
+
+
+            # times_during_tx = [0, treatment_end / 365]
+            # tx_start_clones = y_sub[0]
+            # fig.add_trace(
+            #     go.Scatter(
+            #         x=times_during_tx,
+            #         y=[tx_start_clones, predicted[0]],
+            #         mode='lines+markers',
+            #         line=dict(color=ClusterColors.get_hex_string(cluster)),
+            #         marker=dict(color=ClusterColors.get_hex_string(cluster)),
+            #         showlegend=False
+            #     ),
+            #     row=row, col=col
+            # )
 
         # Add treatment information
         for i, row_data in treatment_df.iterrows():
@@ -665,5 +857,151 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
     #     print(slopes_mcmc_decay)
     # Return HTML content
     return fig.to_html(full_html=False)
+
+
+def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sample, extrapolate_start_idx,
+                             times_aft_tx, times_sliced_aft, treatment_df, treatment_end,model):
+    """
+    Plot subclones and extrapolate their behavior after treatment using Plotly.
+
+    Args:
+        clusters (list): List of cluster IDs to plot.
+        times_sample (list): List of timepoints since treatment start.
+        CLL_count (list): List of CLL count estimates.
+        log_subclone_sample (dict): Dictionary of log subclone counts for each cluster.
+        extrapolate_start_idx (int): Index to start extrapolation.
+        times_aft_tx (list): Timepoints after treatment for extrapolation.
+        treatment (pd.DataFrame): Treatment data.
+        ClusterColors: Object to get cluster colors.
+    """
+    # Create a subplot with two rows
+    fig = go.Figure()
+
+    # Plot total WBC
+    x_year = [i / 365 for i in np.array(times_sample)]
+    x_year_selected = [i / 365 for i in np.array(times_sliced_aft)]
+    fig.add_trace(
+        go.Scatter(x=x_year_selected, y=np.log(wbc_model), mode='markers', name='CLL count estimate',
+                   marker=dict(color='red')),
+
+    )
+
+    # Plot subclones and extrapolate after treatment
+    predicted_end_tx_clones = []
+    for i in clusters:
+        y_sub = np.array(log_subclone_sample[i])
+        fig.add_trace(
+            go.Scatter(x=x_year, y=y_sub, mode='markers', name=f'Cluster {i}',
+                       marker=dict(color=ClusterColors.get_hex_string(i))),
+
+        )
+
+        # Extrapolate after treatment
+        extrapolate_times = times_sample[extrapolate_start_idx:]
+        extrapolate_year = [i / 365 for i in np.array(extrapolate_times)]
+        extrapolate_subclone = log_subclone_sample[i][extrapolate_start_idx:]
+
+        # Fit a linear model for extrapolation
+        linear_model = np.polyfit(extrapolate_year, extrapolate_subclone, 1)
+        predict_year = [i / 365 for i in np.array(times_aft_tx)]
+        predicted = np.polyval(linear_model, predict_year)
+        predicted_end_tx_clones.append(predicted[0])
+
+        # Plot the extrapolated line
+        fig.add_trace(
+            go.Scatter(x=predict_year, y=predicted, mode='lines', name=f'Cluster {i} (extrapolated)',
+                       line=dict(color=ClusterColors.get_hex_string(i))),
+
+        )
+
+        # Plot predicted values
+        times_aft_tx_year = [i / 365 for i in times_aft_tx]
+        fig.add_trace(go.Scatter(
+            x=times_aft_tx_year,
+            y=model.predict(times_aft_tx_year)[:, i - 1],
+            mode='lines',
+            line=dict(dash='dash', color=ClusterColors.get_hex_string(i)),
+            name=f'Cluster {i} (Predicted)'
+        ), )
+
+        # Plot logsumexp points
+        logsumexp_points_model = [logsumexp(yi) for yi in model.predict(times_aft_tx_year)]
+        fig.add_trace(go.Scatter(
+            x=times_aft_tx_year[1:],
+            y=logsumexp_points_model[1:],
+            mode='markers',
+            marker=dict(symbol='triangle-up', color='grey', opacity=0.5),
+            showlegend=False
+        ), )
+
+    # Plot treatment effects
+    tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
+
+    if times_sample[1] > treatment_end:
+        times_during_tx = [0, treatment_end / 365]
+
+        for i in clusters:
+            predicted = model.predict(times_aft_tx_year)[:, i - 1]
+            fig.add_trace(go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted[0]],
+                                     mode='lines+markers', name=f'Cluster {i} (treatment)',
+                                     line=dict(color=ClusterColors.get_hex_string(i))), )
+
+
+
+    else:
+        indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+        times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
+
+        if 0 in times_sample_during_tx:
+            times_during_tx = times_sample_during_tx + [treatment_end]
+
+        else:
+            times_during_tx = [0] + times_sample_during_tx + [treatment_end]
+
+        times_during_tx_year = [x / 365 for x in times_during_tx]
+
+        for i in clusters:
+            predicted = model.predict(times_aft_tx_year)[:, i - 1]
+            y_sub = np.array(log_subclone_sample[i])
+
+            y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
+
+            if 0 not in times_sample_during_tx:
+                extrapolate_subclone_during_tx = [tx_start_clones[i - 1]] + y_sub_during_tx + [predicted[0]]
+            else:
+                extrapolate_subclone_during_tx = y_sub_during_tx + [predicted[0]]
+
+            linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+
+            predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+            fig.add_trace(
+                go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                           mode='lines', name=f'Cluster {i} (treatment)',
+                           line=dict(color=ClusterColors.get_hex_string(i))),
+
+            )
+
+    # Add treatment annotations
+    for i, row in treatment_df.iterrows():
+        treatment_name = row.tx
+        start = row.tx_start / 365
+        end = treatment_end / 365
+        fig.add_vrect(x0=start, x1=end, fillcolor="lightgray", opacity=0.5, line_width=0,
+                      annotation_text=treatment_name, annotation_position="top left", )
+
+    # Update layout
+    fig.update_layout(
+        title="Subclonal analyis with added wbc estimations",
+        xaxis_title="Time (years)",
+        yaxis_title="log CLL count estimates",
+
+        showlegend=True,
+        height=800,
+    )
+
+    # Return HTML content
+    return fig.to_html(full_html=False)
+
 
 
