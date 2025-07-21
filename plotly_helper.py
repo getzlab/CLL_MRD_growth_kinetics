@@ -5,6 +5,7 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 from helper import *
+from model_helper import *
 from scipy.special import logsumexp
 from scipy.optimize import minimize
 
@@ -799,12 +800,33 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
 
     # Calculate stats for growth rates
     table_data_growth = []
+
+    cell_colors =[]
     for cluster in clusters:
         mean = np.mean(slopes_mcmc[cluster], axis=0)
         lower_ci = np.percentile(slopes_mcmc[cluster], 2.5, axis=0)
         upper_ci = np.percentile(slopes_mcmc[cluster], 97.5, axis=0)
         table_data_growth.append([f'Cluster {cluster}', f'{mean:.4f}', f'{lower_ci:.4f} to {upper_ci:.4f}'])
+        cluster_color = ClusterColors.get_hex_string(cluster)
+        cell_colors.append(cluster_color)
 
+    def hex_to_rgba(hex_color, alpha=0.3):
+        """Convert hex color to RGBA with specified transparency"""
+        # Remove # if present
+        hex_color = hex_color.lstrip('#')
+
+        # Convert hex to RGB
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+
+        return f'rgba({r}, {g}, {b}, {alpha})'
+
+    cell_colors_transparent = [hex_to_rgba(color, 0.3) for color in cell_colors]
+    row_colors = []
+    for i in range(len(clusters)):
+        color_index = i % len(cell_colors_transparent)  # Cycle through colors
+        row_colors.append([cell_colors_transparent[color_index]] * 3)  # 3 columns, same color for each row
     # Calculate stats for decay rates
     table_data_decay = []
     for cluster in clusters:
@@ -819,12 +841,14 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
         go.Table(
             header=dict(
                 values=['Cluster', 'Mean Growth Rate', '95% CI'],
-                fill_color='lightblue',
-                align='left'
+
+                align='left',
+                fill_color='lightslategray',
+                font=dict(color='white'),
             ),
             cells=dict(
                 values=list(zip(*table_data_growth)),
-                fill_color='white',
+                fill_color=list(zip(*row_colors)),
                 align='left'
             )
         ),
@@ -836,12 +860,13 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
         go.Table(
             header=dict(
                 values=['Cluster', 'Mean Decay Rate', '95% CI'],
-                fill_color='lightgreen',
+                fill_color='lightslategray',
+                font=dict(color='white'),
                 align='left'
             ),
             cells=dict(
                 values=list(zip(*table_data_decay)),
-                fill_color='white',
+                fill_color=list(zip(*row_colors)),
                 align='left'
             )
         ),
@@ -1004,7 +1029,7 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
     return fig.to_html(full_html=False)
 
 
-def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_aft):
+def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, times_sliced_aft, sample_list, wbc_model,log_subclone_sample_mcmc_with_uniform_noise, treatment_df, treatment_end):
     """
     Plot MCMC models for each cluster dynamically and save the figure as an HTML file.
 
@@ -1082,7 +1107,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_af
 
             # Create inputs and fit the model
             X, y = create_inputs(times_sliced_aft, log_subclone_sample_mcmc_with_uniform_noise, iter_idx,
-                                 index_samples_model)
+                                 index_samples_model, times_sample)
             logsumexp_points = np.log(wbc_model)
             model = MultiClusterLinearRegression(num_clusters, X, y)
             model.fit(logsumexp_points)
@@ -1132,12 +1157,12 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_af
 
                 times_during_tx_year = [x / 365 for x in times_during_tx]
 
-                print(times_during_tx)
+                # print(times_during_tx)
 
                 y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
 
-                print(
-                    f'cluster: {cluster}, iter:{iter_idx}, indices_sample_during_tx:{indices_sample_during_tx},y_sub_during_tx: {y_sub_during_tx}')
+                # print(
+                #     f'cluster: {cluster}, iter:{iter_idx}, indices_sample_during_tx:{indices_sample_during_tx},y_sub_during_tx: {y_sub_during_tx}')
 
                 if 0 not in times_sample_during_tx:
                     extrapolate_subclone_during_tx = [tx_start_clones] + y_sub_during_tx + [
@@ -1146,7 +1171,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_af
                     extrapolate_subclone_during_tx = y_sub_during_tx + [
                         predicted[0]]
 
-                print(f'extrapolate_subclone_during_tx: {extrapolate_subclone_during_tx}')
+                # print(f'extrapolate_subclone_during_tx: {extrapolate_subclone_during_tx}')
                 linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
                 slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
 
@@ -1239,6 +1264,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_af
 
     # Calculate stats for growth rates
     table_data_growth = []
+    cell_colors = []
     for cluster in clusters:
         cluster_slopes_array = np.array(slopes_mcmc[cluster])
         if cluster_slopes_array.ndim > 1:
@@ -1251,6 +1277,27 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_af
         lower_ci = np.percentile(cluster_slopes_flat, 2.5)
         upper_ci = np.percentile(cluster_slopes_flat, 97.5)
         table_data_growth.append([f'Cluster {cluster}', f'{mean:.4f}', f'{lower_ci:.4f} to {upper_ci:.4f}'])
+
+        cluster_color = ClusterColors.get_hex_string(cluster)
+        cell_colors.append(cluster_color)
+
+    def hex_to_rgba(hex_color, alpha=0.3):
+        """Convert hex color to RGBA with specified transparency"""
+        # Remove # if present
+        hex_color = hex_color.lstrip('#')
+
+        # Convert hex to RGB
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+
+        return f'rgba({r}, {g}, {b}, {alpha})'
+
+    cell_colors_transparent = [hex_to_rgba(color, 0.3) for color in cell_colors]
+    row_colors = []
+    for i in range(len(clusters)):
+        color_index = i % len(cell_colors_transparent)  # Cycle through colors
+        row_colors.append([cell_colors_transparent[color_index]] * 3)  # 3 columns, same color for each row
 
     # Calculate stats for decay rates
     table_data_decay = []
@@ -1266,13 +1313,15 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_af
         go.Table(
             header=dict(
                 values=['Cluster', 'Mean Growth Rate', '95% CI'],
-                fill_color='lightblue',
+                fill_color='lightslategray',
+                font=dict(color='white'),
                 align='left'
             ),
             cells=dict(
                 values=list(zip(*table_data_growth)),
-                fill_color='white',
-                align='left'
+                fill_color=list(zip(*row_colors)),
+                align='left',
+
             )
         ),
         row=num_rows - 1, col=1
@@ -1283,13 +1332,16 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sliced_af
         go.Table(
             header=dict(
                 values=['Cluster', 'Mean Decay Rate', '95% CI'],
-                fill_color='lightgreen',
-                align='left'
+                fill_color='lightslategray',
+                align='left',
+                font=dict(color='white'),
+
             ),
             cells=dict(
                 values=list(zip(*table_data_decay)),
-                fill_color='white',
-                align='left'
+                fill_color=list(zip(*row_colors)),
+                align='left',
+
             )
         ),
         row=num_rows, col=1)
