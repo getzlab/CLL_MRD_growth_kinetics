@@ -62,6 +62,10 @@ Outputs/
 *.RData
 *.parquet
 
+# Large notebook files
+*kipps clustering plots.ipynb
+*GCLL standardized with plotly-0022-wbc.ipynb
+
 # Temporary files
 *.tmp
 *.temp
