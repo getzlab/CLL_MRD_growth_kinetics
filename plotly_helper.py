@@ -132,7 +132,16 @@ def plot_metadata_table(df, patient_id):
     return fig.to_html(full_html=False)
 
 
-def plot_tree_plotly(tree_df, tree_selected, edge_labels=None):
+def plot_tree_plotly(tree_df, tree_selected, edge_labels=None, branch_annotations=None):
+    """
+    Plot phylogenetic tree with optional branch annotations.
+    
+    Args:
+        tree_df: DataFrame containing tree data
+        tree_selected: Selected tree index
+        edge_labels: Optional edge labels
+        branch_annotations: Dictionary mapping cluster IDs to annotations (e.g., {1: "Green clones: NRAS_p.S17T"})
+    """
     edges = tree_df.loc[tree_selected, 'edges'].split(',')
     cluster_list = []
     for i in edges:
@@ -199,6 +208,38 @@ def plot_tree_plotly(tree_df, tree_selected, edge_labels=None):
                         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
                     )
+
+    # Add branch annotations if provided
+    if branch_annotations:
+        for cluster_id, annotation in branch_annotations.items():
+            if cluster_id in pos:
+                x, y = pos[cluster_id]
+                
+                # Split annotation by comma and format with line breaks
+                if ',' in annotation:
+                    # Split by comma and clean up each gene
+                    genes = [gene.strip() for gene in annotation.split(',')]
+                    # Join with HTML line breaks
+                    formatted_annotation = '<br>'.join(genes)
+                else:
+                    formatted_annotation = annotation
+                
+                # Get the cluster color for the annotation text
+                cluster_color = ClusterColors.get_hex_string(cluster_id)
+                
+                # Position annotation slightly to the right of the node
+                fig.add_annotation(
+                    x=x + 20,
+                    y=y,
+                    text=formatted_annotation,
+                    showarrow=False,
+                    font=dict(size=10, color=cluster_color),
+                    bgcolor='rgba(255, 255, 255, 0.9)',
+                    bordercolor='black',
+                    borderwidth=1,
+                    xref='x',
+                    yref='y'
+                )
 
     return fig.to_html(full_html=False)
 
@@ -291,7 +332,7 @@ def plot_ccf(df, times_sample, treatment_df, ):
 
 
 
-def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatment_df):
+def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatment_df, branch_annotations=None):
     fig = make_subplots(
         rows=1,
         cols=2,
@@ -364,6 +405,34 @@ def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatme
         ),
         row=1, col=1
     )
+
+    # Add branch annotations if provided
+    if branch_annotations:
+        for cluster_id, annotation in branch_annotations.items():
+            if cluster_id in pos:
+                x, y = pos[cluster_id]
+                
+                # Split annotation by comma and format with line breaks
+                if ',' in annotation:
+                    # Split by comma and clean up each gene
+                    genes = [gene.strip() for gene in annotation.split(',')]
+                    # Join with line breaks (using \n instead of HTML)
+                    formatted_annotation = '<br>'.join(genes)
+                    print(formatted_annotation)
+                else:
+                    formatted_annotation = annotation
+                
+                # Get the cluster color for the annotation text
+                cluster_color = ClusterColors.get_hex_string(cluster_id)
+                
+                # Position annotation slightly to the right of the node
+                fig.add_annotation(
+                    x=x + 20,
+                    y=y,
+                    text=formatted_annotation,
+                    showarrow=False,
+                    font=dict(size=10, color=cluster_color)
+                )
 
     # --- 2. CCF Plot (Right Subplot) ---
     cols = ['Sample_ID', 'Cluster_ID', 'postDP_ccf_mean', 'postDP_ccf_CI_low', 'postDP_ccf_CI_high']
@@ -519,7 +588,7 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
         for i in clusters:
             fig.add_trace(
                 go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted_end_tx_clones[i - 1]],
-                           mode='lines+markers', name=f'Cluster {i} (treatment)',
+                           mode='lines', name=f'Cluster {i} (treatment)',
                            line=dict(color=ClusterColors.get_hex_string(i))),
 
             )
@@ -570,6 +639,15 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
         title="CLL Count and Subclones with Treatment Effects",
         xaxis_title="Time (years)",
         yaxis_title="log CLL count estimates",
+        annotations=[
+        dict(
+            text="CLL Count data: plots total CLL count estimate in natural log scale as red markers<br>Subclone cell population: plots individual subclone cell population at sample points<br>Extrapolation after treatment: Fits a linear model to subclonal data after treatment starts and extropolates the trend back to the end of treatmet <br> Treatment effects: Plots treatment connecting the start of treatment to extrapolated end of treatment values",
+            showarrow=False,
+            xref="paper", yref="paper",
+            x=0.5, y=-0.1,
+            xanchor='center', yanchor='top'
+        )
+        ],
 
         showlegend=True,
         height=800,
@@ -968,7 +1046,7 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
         for i in clusters:
             predicted = model.predict(times_aft_tx_year)[:, i - 1]
             fig.add_trace(go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted[0]],
-                                     mode='lines+markers', name=f'Cluster {i} (treatment)',
+                                     mode='lines', name=f'Cluster {i} (treatment)',
                                      line=dict(color=ClusterColors.get_hex_string(i))), )
 
 
@@ -1014,6 +1092,10 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
         end = treatment_end / 365
         fig.add_vrect(x0=start, x1=end, fillcolor="lightgray", opacity=0.5, line_width=0,
                       annotation_text=treatment_name, annotation_position="top left", )
+
+    
+    fig.add_hline(y=np.log(10**(-4)), line_dash="dash", line_color="blue",
+                  annotation_text="Detection limit of (10^-4)", annotation_position="bottom right")
 
     # Update layout
     fig.update_layout(
@@ -1093,6 +1175,9 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
         slopes_mcmc_decay[cluster] = []
         slopes_mcmc[cluster] = []
 
+        # fig.add_hline(y=np.log(10**(-4)), line_dash="dash", line_color="blue",
+        #           annotation_text="Detection limit of (10^-4)", annotation_position="bottom right", row = row, col = col)
+        
         # Plot subclones and MCMC iterations
         for iter_idx in range(250):
             x_year = [i / 365 for i in np.array(times_sample)]
@@ -1205,6 +1290,8 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
                 showlegend=False
             ), row=row, col=col)
 
+
+            
         #         # Add secondary x-axis
         #         x_axis = [i / 365 for i in times_sample]
         #         fig.update_xaxes(tickvals=x_axis, ticktext=tick_list, row=row, col=col)
@@ -1221,8 +1308,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
             treatment_name = row_data.tx
             start = row_data.tx_start / 365
             end = treatment_end / 365
-            if np.isnan(end):
-                end = x_axis[-1]
+            
             fig.add_vrect(
                 x0=start, x1=end,
                 fillcolor="grey", opacity=0.5,
