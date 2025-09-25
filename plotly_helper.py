@@ -57,7 +57,8 @@ def create_html_file(plot_html_list, output_file="combined_plots.html"):
 
 
 # Function to create an interactive plot and save it as HTML
-def plot_CLL_count(patient_id,times_sample, CLL_count, UMI_start, UMI_end, treatment_start, treatment_end, ):
+def plot_CLL_count(patient_id, times_sample, CLL_count, UMI_start, UMI_end, treatment_start, treatment_end, 
+                   fludarabine_treatment_1=None, fludarabine_treatment_2=None):
     # Create the plot
     fig = go.Figure()
 
@@ -87,9 +88,35 @@ def plot_CLL_count(patient_id,times_sample, CLL_count, UMI_start, UMI_end, treat
         opacity=0.5,
         layer="below",
         line_width=0,
-        annotation_text="Fludarabine Treatment",
+        annotation_text="Ibrutinib Treatment",
         annotation_position="top left"
     )
+
+    # Add first fludarabine treatment region if provided
+    if fludarabine_treatment_1 is not None:
+        fig.add_vrect(
+            x0=fludarabine_treatment_1[0],
+            x1=fludarabine_treatment_1[1],
+            fillcolor="lightblue",
+            opacity=0.5,
+            layer="below",
+            line_width=0,
+            annotation_text=f"Fludarabine Treatment ({fludarabine_treatment_1[0]}-{fludarabine_treatment_1[1]})",
+            annotation_position="top left"
+        )
+
+    # Add second fludarabine treatment region if provided
+    if fludarabine_treatment_2 is not None:
+        fig.add_vrect(
+            x0=fludarabine_treatment_2[0],
+            x1=fludarabine_treatment_2[1],
+            fillcolor="lightgreen",
+            opacity=0.5,
+            layer="below",
+            line_width=0,
+            annotation_text=f"Fludarabine Treatment ({fludarabine_treatment_2[0]}-{fludarabine_treatment_2[1]})",
+            annotation_position="top left"
+        )
 
     # Customize the layout
     fig.update_layout(
@@ -515,7 +542,7 @@ def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatme
 
 
 def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample, extrapolate_start_idx, times_aft_tx,
-                   treatment_df, treatment_end, ):
+                   treatment_df, treatment_end, CLL14_modeling=False):
     """
     Plot subclones and extrapolate their behavior after treatment using Plotly.
 
@@ -580,51 +607,52 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
     #     )
 
     # Plot treatment effects
-    tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
+    if not CLL14_modeling:
+        tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
 
-    if times_sample[1] > treatment_end:
-        times_during_tx = [0, treatment_end / 365]
+        if times_sample[1] > treatment_end:
+            times_during_tx = [0, treatment_end / 365]
 
-        for i in clusters:
-            fig.add_trace(
-                go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted_end_tx_clones[i - 1]],
-                           mode='lines', name=f'Cluster {i} (treatment)',
-                           line=dict(color=ClusterColors.get_hex_string(i))),
+            for i in clusters:
+                fig.add_trace(
+                    go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted_end_tx_clones[i - 1]],
+                            mode='lines', name=f'Cluster {i} (treatment)',
+                            line=dict(color=ClusterColors.get_hex_string(i))),
 
-            )
-    else:
-        indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
-        times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
-
-        if 0 in times_sample_during_tx:
-            times_during_tx = times_sample_during_tx + [treatment_end]
-
+                )
         else:
-            times_during_tx = [0] + times_sample_during_tx + [treatment_end]
+            indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+            times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
 
-        times_during_tx_year = [x / 365 for x in times_during_tx]
+            if 0 in times_sample_during_tx:
+                times_during_tx = times_sample_during_tx + [treatment_end]
 
-        for i in clusters:
-            y_sub = np.array(log_subclone_sample[i])
-
-            y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
-
-            if 0 not in times_sample_during_tx:
-                extrapolate_subclone_during_tx = [tx_start_clones[i - 1]] + y_sub_during_tx + [
-                    predicted_end_tx_clones[i - 1]]
             else:
-                extrapolate_subclone_during_tx = y_sub_during_tx + [predicted_end_tx_clones[i - 1]]
+                times_during_tx = [0] + times_sample_during_tx + [treatment_end]
 
-            linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+            times_during_tx_year = [x / 365 for x in times_during_tx]
 
-            predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+            for i in clusters:
+                y_sub = np.array(log_subclone_sample[i])
 
-            fig.add_trace(
-                go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
-                           mode='lines', name=f'Cluster {i} (treatment)',
-                           line=dict(color=ClusterColors.get_hex_string(i))),
+                y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
 
-            )
+                if 0 not in times_sample_during_tx:
+                    extrapolate_subclone_during_tx = [tx_start_clones[i - 1]] + y_sub_during_tx + [
+                        predicted_end_tx_clones[i - 1]]
+                else:
+                    extrapolate_subclone_during_tx = y_sub_during_tx + [predicted_end_tx_clones[i - 1]]
+
+                linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+
+                predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+                fig.add_trace(
+                    go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                            mode='lines', name=f'Cluster {i} (treatment)',
+                            line=dict(color=ClusterColors.get_hex_string(i))),
+
+                )
 
     # Add treatment annotations
     for i, row in treatment_df.iterrows():
@@ -657,7 +685,7 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
     return fig.to_html(full_html=False)
 
 
-def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclone_sample_mcmc_with_uniform_noise, extrapolate_start_idx, times_aft_tx, treatment_df, treatment_end):
+def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclone_sample_mcmc_with_uniform_noise, extrapolate_start_idx, times_aft_tx, treatment_df, treatment_end, CLL14_modeling=False):
     """
     Plots subclones with MCMC data for all clusters using Plotly.
     Includes both growth rate and decay rate histograms and tables.
@@ -744,8 +772,9 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
             predicted = np.polyval(linear_model, predict_year)
 
             # Calculate decay rate
-            slope_decay = (predicted[0] - y_sub[0]) / (treatment_end / 365)
-            slopes_mcmc_decay[cluster].append(slope_decay)
+            if not CLL14_modeling:
+                slope_decay = (predicted[0] - y_sub[0]) / (treatment_end / 365)
+                slopes_mcmc_decay[cluster].append(slope_decay)
 
             fig.add_trace(
                 go.Scatter(
@@ -759,56 +788,58 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
             )
 
             # Plot during treatment
-            tx_start_clones = y_sub[0]
+            if not CLL14_modeling:
+                tx_start_clones = y_sub[0]
 
-            if times_sample[1] > treatment_end:
-                times_during_tx = [0, treatment_end / 365]
+                if times_sample[1] > treatment_end:
+                    times_during_tx = [0, treatment_end / 365]
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=times_during_tx,
-                        y=[tx_start_clones, predicted[0]],
-                        mode='lines+markers',
-                        line=dict(color=ClusterColors.get_hex_string(cluster)),
-                        marker=dict(color=ClusterColors.get_hex_string(cluster)),
-                        showlegend=False
-                    ),
-                    row=row, col=col
-                )
-
-            else:
-                indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
-                times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
-
-                if 0 in times_sample_during_tx:
-                    times_during_tx = times_sample_during_tx + [treatment_end]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=times_during_tx,
+                            y=[tx_start_clones, predicted[0]],
+                            mode='lines+markers',
+                            line=dict(color=ClusterColors.get_hex_string(cluster)),
+                            marker=dict(color=ClusterColors.get_hex_string(cluster)),
+                            showlegend=False
+                        ),
+                        row=row, col=col
+                    )
 
                 else:
-                    times_during_tx = [0] + times_sample_during_tx + [treatment_end]
+                    indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+                    times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
 
-                times_during_tx_year = [x / 365 for x in times_during_tx]
+                    if 0 in times_sample_during_tx:
+                        times_during_tx = times_sample_during_tx + [treatment_end]
 
-                y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
+                    else:
+                        times_during_tx = [0] + times_sample_during_tx + [treatment_end]
 
-                if 0 not in times_sample_during_tx:
-                    extrapolate_subclone_during_tx = [tx_start_clones] + y_sub_during_tx + [
-                        predicted[0]]
-                else:
-                    extrapolate_subclone_during_tx = y_sub_during_tx + [
-                        predicted[0]]
+                    times_during_tx_year = [x / 365 for x in times_during_tx]
 
-                linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
-                slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
+                    y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
 
-                predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+                    if 0 not in times_sample_during_tx:
+                        extrapolate_subclone_during_tx = [tx_start_clones] + y_sub_during_tx + [
+                            predicted[0]]
+                    else:
+                        extrapolate_subclone_during_tx = y_sub_during_tx + [
+                            predicted[0]]
 
-                fig.add_trace(
-                    go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
-                               mode='lines',
-                               line=dict(color=ClusterColors.get_hex_string(cluster)), showlegend=False), row=row,
-                    col=col
+                    linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+                    if not CLL14_modeling:
+                        slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
 
-                )
+                    predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+                    fig.add_trace(
+                        go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                                mode='lines',
+                                line=dict(color=ClusterColors.get_hex_string(cluster)), showlegend=False), row=row,
+                        col=col
+
+                    )
 
 
 
@@ -863,18 +894,19 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
     fig.update_yaxes(title_text="Count", row=row_hist, col=1)
 
     # Plot decay rate histogram
-    for cluster in clusters:
-        fig.add_trace(
-            go.Histogram(
-                x=slopes_mcmc_decay[cluster],
-                name=f'Cluster {cluster} Decay',
-                marker_color=ClusterColors.get_hex_string(cluster),
-                opacity=0.5
-            ),
-            row=row_hist, col=2
-        )
-    fig.update_xaxes(title_text="Decay Rate (slope)", row=row_hist, col=2)
-    fig.update_yaxes(title_text="Count", row=row_hist, col=2)
+    if not CLL14_modeling:
+        for cluster in clusters:
+            fig.add_trace(
+                go.Histogram(
+                    x=slopes_mcmc_decay[cluster],
+                    name=f'Cluster {cluster} Decay',
+                    marker_color=ClusterColors.get_hex_string(cluster),
+                    opacity=0.5
+                ),
+                row=row_hist, col=2
+            )
+        fig.update_xaxes(title_text="Decay Rate (slope)", row=row_hist, col=2)
+        fig.update_yaxes(title_text="Count", row=row_hist, col=2)
 
     # Calculate stats for growth rates
     table_data_growth = []
@@ -905,14 +937,16 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
     for i in range(len(clusters)):
         color_index = i % len(cell_colors_transparent)  # Cycle through colors
         row_colors.append([cell_colors_transparent[color_index]] * 3)  # 3 columns, same color for each row
+
     # Calculate stats for decay rates
-    table_data_decay = []
-    for cluster in clusters:
-        mean_decay = np.mean(slopes_mcmc_decay[cluster], axis=0)
-        lower_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 2.5, axis=0)
-        upper_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 97.5, axis=0)
-        table_data_decay.append(
-            [f'Cluster {cluster}', f'{mean_decay:.4f}', f'{lower_ci_decay:.4f} to {upper_ci_decay:.4f}'])
+    if not CLL14_modeling:
+        table_data_decay = []
+        for cluster in clusters:
+            mean_decay = np.mean(slopes_mcmc_decay[cluster], axis=0)
+            lower_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 2.5, axis=0)
+            upper_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 97.5, axis=0)
+            table_data_decay.append(
+                [f'Cluster {cluster}', f'{mean_decay:.4f}', f'{lower_ci_decay:.4f} to {upper_ci_decay:.4f}'])
 
     # Add growth rate table (second last row)
     fig.add_trace(
@@ -934,21 +968,22 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
     )
 
     # Add decay rate table (last row)
-    fig.add_trace(
-        go.Table(
-            header=dict(
-                values=['Cluster', 'Mean Decay Rate', '95% CI'],
-                fill_color='lightslategray',
-                font=dict(color='white'),
-                align='left'
+    if not CLL14_modeling:
+        fig.add_trace(
+            go.Table(
+                header=dict(
+                    values=['Cluster', 'Mean Decay Rate', '95% CI'],
+                    fill_color='lightslategray',
+                    font=dict(color='white'),
+                    align='left'
+                ),
+                cells=dict(
+                    values=list(zip(*table_data_decay)),
+                    fill_color=list(zip(*row_colors)),
+                    align='left'
+                )
             ),
-            cells=dict(
-                values=list(zip(*table_data_decay)),
-                fill_color=list(zip(*row_colors)),
-                align='left'
-            )
-        ),
-        row=num_rows, col=1)
+            row=num_rows, col=1)
 
     # Update layout
     fig.update_layout(
@@ -963,7 +998,8 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
 
 
 def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sample, extrapolate_start_idx,
-                             times_aft_tx, times_sliced_aft, treatment_df, treatment_end,model):
+                             times_aft_tx, times_sliced_aft, treatment_df, treatment_end, model, 
+                             CLL14_modeling=False):
     """
     Plot subclones and extrapolate their behavior after treatment using Plotly.
 
@@ -977,6 +1013,7 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
         treatment (pd.DataFrame): Treatment data.
         ClusterColors: Object to get cluster colors.
     """
+    print(f"DEBUG: plot_subclones_new_model called with clusters={clusters}, times_sample[1]={times_sample[1]}, treatment_end={treatment_end}")
     # Create a subplot with two rows
     fig = go.Figure()
 
@@ -1038,52 +1075,56 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
         ), )
 
     # Plot treatment effects
-    tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
+    if not CLL14_modeling:
+        tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
 
-    if times_sample[1] > treatment_end:
-        times_during_tx = [0, treatment_end / 365]
+        if times_sample[1] > treatment_end:
+            times_during_tx = [0, treatment_end / 365]
 
-        for i in clusters:
-            predicted = model.predict(times_aft_tx_year)[:, i - 1]
-            fig.add_trace(go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted[0]],
-                                     mode='lines', name=f'Cluster {i} (treatment)',
-                                     line=dict(color=ClusterColors.get_hex_string(i))), )
+            for i in clusters:
+                predicted = model.predict(times_aft_tx_year)[:, i - 1]
+                
+                fig.add_trace(go.Scatter(x=times_during_tx, y=[tx_start_clones[i - 1], predicted[0]],
+                                        mode='lines', name=f'Cluster {i} (treatment)',
+                                        line=dict(color=ClusterColors.get_hex_string(i))), )
 
 
-
-    else:
-        indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
-        times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
-
-        if 0 in times_sample_during_tx:
-            times_during_tx = times_sample_during_tx + [treatment_end]
 
         else:
-            times_during_tx = [0] + times_sample_during_tx + [treatment_end]
+            print("DEBUG: Entering else block - times_sample[1] <= treatment_end")
+            indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+            times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
 
-        times_during_tx_year = [x / 365 for x in times_during_tx]
+            if 0 in times_sample_during_tx:
+                times_during_tx = times_sample_during_tx + [treatment_end]
 
-        for i in clusters:
-            predicted = model.predict(times_aft_tx_year)[:, i - 1]
-            y_sub = np.array(log_subclone_sample[i])
-
-            y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
-
-            if 0 not in times_sample_during_tx:
-                extrapolate_subclone_during_tx = [tx_start_clones[i - 1]] + y_sub_during_tx + [predicted[0]]
             else:
-                extrapolate_subclone_during_tx = y_sub_during_tx + [predicted[0]]
+                times_during_tx = [0] + times_sample_during_tx + [treatment_end]
 
-            linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+            times_during_tx_year = [x / 365 for x in times_during_tx]
+            print(f"DEBUG: times_during_tx_year={times_during_tx_year}")
+            for i in clusters:
+                predicted = model.predict(times_aft_tx_year)[:, i - 1]
+                print(f'Cluster {i} predicted: {predicted[0]}')
+                y_sub = np.array(log_subclone_sample[i])
 
-            predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+                y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
 
-            fig.add_trace(
-                go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
-                           mode='lines', name=f'Cluster {i} (treatment)',
-                           line=dict(color=ClusterColors.get_hex_string(i))),
+                if 0 not in times_sample_during_tx:
+                    extrapolate_subclone_during_tx = [tx_start_clones[i - 1]] + y_sub_during_tx + [predicted[0]]
+                else:
+                    extrapolate_subclone_during_tx = y_sub_during_tx + [predicted[0]]
 
-            )
+                linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+
+                predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+                fig.add_trace(
+                    go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                            mode='lines', name=f'Cluster {i} (treatment)',
+                            line=dict(color=ClusterColors.get_hex_string(i))),
+
+                )
 
     # Add treatment annotations
     for i, row in treatment_df.iterrows():
@@ -1111,7 +1152,7 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
     return fig.to_html(full_html=False)
 
 
-def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, times_sliced_aft, sample_list, wbc_model,log_subclone_sample_mcmc_with_uniform_noise, treatment_df, treatment_end):
+def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, times_sliced_aft, sample_list, wbc_model,log_subclone_sample_mcmc_with_uniform_noise, treatment_df, treatment_end, CLL14_modeling=False):
     """
     Plot MCMC models for each cluster dynamically and save the figure as an HTML file.
 
@@ -1207,68 +1248,68 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
             predicted = model.predict(times_aft_tx_year)[:, cluster - 1]
 
             # Plot during treatment
+            if not CLL14_modeling:
+                tx_start_clones = y_sub[0]
 
-            tx_start_clones = y_sub[0]
+                if times_sample[1] > treatment_end:
+                    times_during_tx = [0, treatment_end / 365]
 
-            if times_sample[1] > treatment_end:
-                times_during_tx = [0, treatment_end / 365]
+                    slope_decay = (predicted[0] - y_sub[0]) / (treatment_end / 365)
+                    slopes_mcmc_decay[cluster].append(slope_decay)
 
-                slope_decay = (predicted[0] - y_sub[0]) / (treatment_end / 365)
-                slopes_mcmc_decay[cluster].append(slope_decay)
+                    fig.add_trace(
+                        go.Scatter(
+                            x=times_during_tx,
+                            y=[tx_start_clones, predicted[0]],
+                            mode='lines+markers',
+                            line=dict(color=ClusterColors.get_hex_string(cluster)),
+                            marker=dict(color=ClusterColors.get_hex_string(cluster)),
+                            showlegend=False
+                        ),
+                        row=row, col=col
+                    )
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=times_during_tx,
-                        y=[tx_start_clones, predicted[0]],
-                        mode='lines+markers',
-                        line=dict(color=ClusterColors.get_hex_string(cluster)),
-                        marker=dict(color=ClusterColors.get_hex_string(cluster)),
-                        showlegend=False
-                    ),
-                    row=row, col=col
-                )
-
-
-            else:
-
-                indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
-                times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
-
-                if 0 in times_sample_during_tx:
-                    times_during_tx = times_sample_during_tx + [treatment_end]
 
                 else:
-                    times_during_tx = [0] + times_sample_during_tx + [treatment_end]
 
-                times_during_tx_year = [x / 365 for x in times_during_tx]
+                    indices_sample_during_tx = [i for i, value in enumerate(times_sample) if 0 <= value < treatment_end]
+                    times_sample_during_tx = [times_sample[i] for i in indices_sample_during_tx]
 
-                # print(times_during_tx)
+                    if 0 in times_sample_during_tx:
+                        times_during_tx = times_sample_during_tx + [treatment_end]
 
-                y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
+                    else:
+                        times_during_tx = [0] + times_sample_during_tx + [treatment_end]
 
-                # print(
-                #     f'cluster: {cluster}, iter:{iter_idx}, indices_sample_during_tx:{indices_sample_during_tx},y_sub_during_tx: {y_sub_during_tx}')
+                    times_during_tx_year = [x / 365 for x in times_during_tx]
 
-                if 0 not in times_sample_during_tx:
-                    extrapolate_subclone_during_tx = [tx_start_clones] + y_sub_during_tx + [
-                        predicted[0]]
-                else:
-                    extrapolate_subclone_during_tx = y_sub_during_tx + [
-                        predicted[0]]
+                    # print(times_during_tx)
 
-                # print(f'extrapolate_subclone_during_tx: {extrapolate_subclone_during_tx}')
-                linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
-                slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
+                    y_sub_during_tx = [y_sub[i] for i in indices_sample_during_tx]
 
-                predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+                    # print(
+                    #     f'cluster: {cluster}, iter:{iter_idx}, indices_sample_during_tx:{indices_sample_during_tx},y_sub_during_tx: {y_sub_during_tx}')
 
-                fig.add_trace(
-                    go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
-                               mode='lines',
-                               line=dict(color=ClusterColors.get_hex_string(cluster)), showlegend=False), row=row,
-                    col=col
+                    if 0 not in times_sample_during_tx:
+                        extrapolate_subclone_during_tx = [tx_start_clones] + y_sub_during_tx + [
+                            predicted[0]]
+                    else:
+                        extrapolate_subclone_during_tx = y_sub_during_tx + [
+                            predicted[0]]
 
-                )
+                    # print(f'extrapolate_subclone_during_tx: {extrapolate_subclone_during_tx}')
+                    linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
+                    slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
+
+                    predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
+
+                    fig.add_trace(
+                        go.Scatter(x=times_during_tx_year, y=predicted_during_tx,
+                                mode='lines',
+                                line=dict(color=ClusterColors.get_hex_string(cluster)), showlegend=False), row=row,
+                        col=col
+
+                    )
 
             # Plot predicted values
             times_aft_tx_year = [i / 365 for i in times_aft_tx]
@@ -1337,16 +1378,17 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
             opacity=0.5,
         ), row=row_hist, col=1)
 
-    for cluster in clusters:
-        fig.add_trace(
-            go.Histogram(
-                x=slopes_mcmc_decay[cluster],
-                name=f'Cluster {cluster} Decay',
-                marker_color=ClusterColors.get_hex_string(cluster),
-                opacity=0.5
-            ),
-            row=row_hist, col=2
-        )
+    if not CLL14_modeling:
+        for cluster in clusters:
+            fig.add_trace(
+                go.Histogram(
+                    x=slopes_mcmc_decay[cluster],
+                    name=f'Cluster {cluster} Decay',
+                    marker_color=ClusterColors.get_hex_string(cluster),
+                    opacity=0.5
+                ),
+                row=row_hist, col=2
+            )
 
     # Calculate stats for growth rates
     table_data_growth = []
@@ -1386,13 +1428,14 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
         row_colors.append([cell_colors_transparent[color_index]] * 3)  # 3 columns, same color for each row
 
     # Calculate stats for decay rates
-    table_data_decay = []
-    for cluster in clusters:
-        mean_decay = np.mean(slopes_mcmc_decay[cluster])
-        lower_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 2.5)
-        upper_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 97.5)
-        table_data_decay.append(
-            [f'Cluster {cluster}', f'{mean_decay:.4f}', f'{lower_ci_decay:.4f} to {upper_ci_decay:.4f}'])
+    if not CLL14_modeling:
+        table_data_decay = []
+        for cluster in clusters:
+            mean_decay = np.mean(slopes_mcmc_decay[cluster])
+            lower_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 2.5)
+            upper_ci_decay = np.percentile(slopes_mcmc_decay[cluster], 97.5)
+            table_data_decay.append(
+                [f'Cluster {cluster}', f'{mean_decay:.4f}', f'{lower_ci_decay:.4f} to {upper_ci_decay:.4f}'])
 
     # Add growth rate table
     fig.add_trace(
@@ -1414,23 +1457,24 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
     )
 
     # Add decay rate table (last row)
-    fig.add_trace(
-        go.Table(
-            header=dict(
-                values=['Cluster', 'Mean Decay Rate', '95% CI'],
-                fill_color='lightslategray',
-                align='left',
-                font=dict(color='white'),
+    if not CLL14_modeling:
+        fig.add_trace(
+            go.Table(
+                header=dict(
+                    values=['Cluster', 'Mean Decay Rate', '95% CI'],
+                    fill_color='lightslategray',
+                    align='left',
+                    font=dict(color='white'),
 
+                ),
+                cells=dict(
+                    values=list(zip(*table_data_decay)),
+                    fill_color=list(zip(*row_colors)),
+                    align='left',
+
+                )
             ),
-            cells=dict(
-                values=list(zip(*table_data_decay)),
-                fill_color=list(zip(*row_colors)),
-                align='left',
-
-            )
-        ),
-        row=num_rows, col=1)
+            row=num_rows, col=1)
 
     fig.update_xaxes(title_text="Growth Rate (slope)", row=row_hist, col=1)
     fig.update_yaxes(title_text="Count", row=row_hist, col=1)

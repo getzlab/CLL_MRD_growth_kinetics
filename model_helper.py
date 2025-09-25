@@ -462,3 +462,30 @@ def map_samples_to_y(times_sliced, times_sample_selected, selected_sample):
     return y
 
 
+def add_uniform_noise_and_normalize(lst, low=0, high=0.01, random_seed=42):
+    """
+    Add uniform noise to a list and normalize it to sum to 1.
+    
+    Parameters:
+    - lst: List of values to add noise to
+    - low: Lower bound for uniform noise (default: 0)
+    - high: Upper bound for uniform noise (default: 0.01)
+    - random_seed: Random seed for reproducibility (default: 42)
+    
+    Returns:
+    - normalized_lst: List with noise added and normalized to sum to 1
+    """
+    import random
+    random.seed(random_seed)
+    
+    # Add uniform noise
+    noisy_lst = [x + random.uniform(low, high) for x in lst]
+    
+    # Normalize the list
+    total_sum = sum(noisy_lst)
+    
+    normalized_lst = [x / total_sum for x in noisy_lst]
+
+    return normalized_lst
+
+
