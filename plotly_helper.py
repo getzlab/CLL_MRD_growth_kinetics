@@ -97,12 +97,12 @@ def plot_CLL_count(patient_id, times_sample, CLL_count, UMI_start, UMI_end, trea
         fig.add_vrect(
             x0=fludarabine_treatment_1[0],
             x1=fludarabine_treatment_1[1],
-            fillcolor="lightblue",
+            fillcolor="lightgreen",
             opacity=0.5,
             layer="below",
             line_width=0,
-            annotation_text=f"Fludarabine Treatment ({fludarabine_treatment_1[0]}-{fludarabine_treatment_1[1]})",
-            annotation_position="top left"
+            annotation_text="Fludarabine",
+            annotation_position="bottom left"
         )
 
     # Add second fludarabine treatment region if provided
@@ -114,8 +114,8 @@ def plot_CLL_count(patient_id, times_sample, CLL_count, UMI_start, UMI_end, trea
             opacity=0.5,
             layer="below",
             line_width=0,
-            annotation_text=f"Fludarabine Treatment ({fludarabine_treatment_2[0]}-{fludarabine_treatment_2[1]})",
-            annotation_position="top left"
+            
+            annotation_position="bottom left"
         )
 
     # Customize the layout
