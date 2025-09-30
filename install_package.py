@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Installation script for the clonokinetics package.
+Installation script for the clonokinetix package.
 Run this script to install the package in development mode.
 """
 
@@ -9,13 +9,13 @@ import sys
 import os
 
 def install_package():
-    """Install the clonokinetics package in development mode."""
+    """Install the clonokinetix package in development mode."""
     
     # Change to the project directory
     project_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(project_dir)
     
-    print("Installing clonokinetics package in development mode...")
+    print("Installing clonokinetix package in development mode...")
     
     try:
         # Install the package in development mode
@@ -24,9 +24,9 @@ def install_package():
         
         # Verify installation
         print("\nVerifying installation...")
-        subprocess.check_call([sys.executable, "-c", "import clonokinetics; print('✅ clonokinetics imported successfully')"])
+        subprocess.check_call([sys.executable, "-c", "import clonokinetix; print('✅ clonokinetix imported successfully')"])
         
-        print("\n🎉 Installation complete! You can now import clonokinetics in your notebooks.")
+        print("\n🎉 Installation complete! You can now import clonokinetix in your notebooks.")
         
     except subprocess.CalledProcessError as e:
         print(f"❌ Installation failed: {e}")
