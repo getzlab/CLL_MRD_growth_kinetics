@@ -100,8 +100,8 @@ def load_patient_data(cfg: PatientConfig):
     treatment_df = pd.read_csv(cfg.treatment_file, sep="\t")
 
     if cfg.workspace:
-        import dalmatian  # optional
-        wm = dalmatian.WorkspaceManager(cfg.workspace)
+        from dalmatian.wmanager import WorkspaceManager  # optional
+        wm = WorkspaceManager(cfg.workspace)
         participants = wm.get_participants()
         participant_row = participants.loc[cfg.patient_id]
 
