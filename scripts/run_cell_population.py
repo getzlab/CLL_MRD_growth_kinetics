@@ -32,8 +32,8 @@ FILE_FIELD_CANDIDATES: Dict[str, Iterable[str]] = {
 }
 
 DEFAULT_FILENAMES: Dict[str, str] = {
-    "cluster_ccfs": "{patient_id}_cluster_ccfs.txt",
-    "mut_ccfs": "{patient_id}_mut_ccfs.txt",
+    "cluster_ccfs": "{patient_id}.cluster_ccfs.txt",
+    "mut_ccfs": "{patient_id}.mut_ccfs.txt",
     "sif": "{patient_id}.sif",
     "build_tree_posteriors": "{patient_id}_build_tree_posteriors.tsv",
 }
