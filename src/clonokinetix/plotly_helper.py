@@ -542,7 +542,7 @@ def plot_ccf_tree_combined(tree_df, tree_selected, ccf_df, times_sample, treatme
 
 
 def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample, extrapolate_start_idx, times_aft_tx,
-                   treatment_df, treatment_end, CLL14_modeling=False):
+                   treatment_df, treatment_end, fi_modeling=False):
     """
     Plot subclones and extrapolate their behavior after treatment using Plotly.
 
@@ -607,7 +607,7 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
     #     )
 
     # Plot treatment effects
-    if not CLL14_modeling:
+    if not fi_modeling:
         tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
 
         if times_sample[1] > treatment_end:
@@ -685,7 +685,7 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
     return fig.to_html(full_html=False)
 
 
-def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclone_sample_mcmc_with_uniform_noise, extrapolate_start_idx, times_aft_tx, treatment_df, treatment_end, CLL14_modeling=False):
+def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclone_sample_mcmc_with_uniform_noise, extrapolate_start_idx, times_aft_tx, treatment_df, treatment_end, fi_modeling=False):
     """
     Plots subclones with MCMC data for all clusters using Plotly.
     Includes both growth rate and decay rate histograms and tables.
@@ -772,7 +772,7 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
             predicted = np.polyval(linear_model, predict_year)
 
             # Calculate decay rate
-            if not CLL14_modeling:
+            if not fi_modeling:
                 slope_decay = (predicted[0] - y_sub[0]) / (treatment_end / 365)
                 slopes_mcmc_decay[cluster].append(slope_decay)
 
@@ -788,7 +788,7 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
             )
 
             # Plot during treatment
-            if not CLL14_modeling:
+            if not fi_modeling:
                 tx_start_clones = y_sub[0]
 
                 if times_sample[1] > treatment_end:
@@ -828,7 +828,7 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
                             predicted[0]]
 
                     linear_model_during_tx = np.polyfit(times_during_tx_year, extrapolate_subclone_during_tx, 1)
-                    if not CLL14_modeling:
+                    if not fi_modeling:
                         slopes_mcmc_decay[cluster].append(linear_model_during_tx[0])
 
                     predicted_during_tx = np.polyval(linear_model_during_tx, times_during_tx_year)
@@ -894,7 +894,7 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
     fig.update_yaxes(title_text="Count", row=row_hist, col=1)
 
     # Plot decay rate histogram
-    if not CLL14_modeling:
+    if not fi_modeling:
         for cluster in clusters:
             fig.add_trace(
                 go.Histogram(
@@ -939,7 +939,7 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
         row_colors.append([cell_colors_transparent[color_index]] * 3)  # 3 columns, same color for each row
 
     # Calculate stats for decay rates
-    if not CLL14_modeling:
+    if not fi_modeling:
         table_data_decay = []
         for cluster in clusters:
             mean_decay = np.mean(slopes_mcmc_decay[cluster], axis=0)
@@ -968,7 +968,7 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
     )
 
     # Add decay rate table (last row)
-    if not CLL14_modeling:
+    if not fi_modeling:
         fig.add_trace(
             go.Table(
                 header=dict(
@@ -999,7 +999,7 @@ def plot_linear_model_mcmc(clusters, times_sample, CLL_count_sample, log_subclon
 
 def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sample, extrapolate_start_idx,
                              times_aft_tx, times_sliced_aft, treatment_df, treatment_end, model, 
-                             CLL14_modeling=False):
+                             fi_modeling=False):
     """
     Plot subclones and extrapolate their behavior after treatment using Plotly.
 
@@ -1075,7 +1075,7 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
         ), )
 
     # Plot treatment effects
-    if not CLL14_modeling:
+    if not fi_modeling:
         tx_start_clones = [log_subclone_sample[i][0] for i in clusters]
 
         if times_sample[1] > treatment_end:
@@ -1152,7 +1152,7 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
     return fig.to_html(full_html=False)
 
 
-def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, times_sliced_aft, sample_list, wbc_model,log_subclone_sample_mcmc_with_uniform_noise, treatment_df, treatment_end, CLL14_modeling=False):
+def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, times_sliced_aft, sample_list, wbc_model,log_subclone_sample_mcmc_with_uniform_noise, treatment_df, treatment_end, fi_modeling=False):
     """
     Plot MCMC models for each cluster dynamically and save the figure as an HTML file.
 
@@ -1248,7 +1248,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
             predicted = model.predict(times_aft_tx_year)[:, cluster - 1]
 
             # Plot during treatment
-            if not CLL14_modeling:
+            if not fi_modeling:
                 tx_start_clones = y_sub[0]
 
                 if times_sample[1] > treatment_end:
@@ -1378,7 +1378,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
             opacity=0.5,
         ), row=row_hist, col=1)
 
-    if not CLL14_modeling:
+    if not fi_modeling:
         for cluster in clusters:
             fig.add_trace(
                 go.Histogram(
@@ -1428,7 +1428,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
         row_colors.append([cell_colors_transparent[color_index]] * 3)  # 3 columns, same color for each row
 
     # Calculate stats for decay rates
-    if not CLL14_modeling:
+    if not fi_modeling:
         table_data_decay = []
         for cluster in clusters:
             mean_decay = np.mean(slopes_mcmc_decay[cluster])
@@ -1457,7 +1457,7 @@ def plot_mcmc_model(clusters, index_samples_model, times_aft_tx, times_sample, t
     )
 
     # Add decay rate table (last row)
-    if not CLL14_modeling:
+    if not fi_modeling:
         fig.add_trace(
             go.Table(
                 header=dict(

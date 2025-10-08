@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
 
 from clonokinetix import model_helper, plotly_helper
@@ -41,7 +42,10 @@ class PatientConfig:
     noise_low: float = 0.0
     noise_high: float = 0.01
     noise_seed: int = 42
-
+    model_iteration: int = 2
+    index_samples_model: Optional[Tuple[int, Optional[int]]] = None
+    fi_modeling: bool = False
+    
 
 def _default_cell_population_path(patient_id: str, suffix: str) -> Path:
     # Files with dots: cluster_ccfs, mut_ccfs, sif
@@ -77,6 +81,18 @@ def transpose_iterations(noisy: Dict[int, Dict[int, List[float]]]) -> Dict[int, 
     for cluster in noisy.keys():
         recomposed[cluster] = {iteration: per_iter[iteration][cluster] for iteration in per_iter}
     return recomposed
+
+
+def _resolve_index_slice(cfg: PatientConfig, times_sample: Sequence[int]) -> slice:
+    if cfg.index_samples_model is not None:
+        start, stop = cfg.index_samples_model
+        return slice(start, stop)
+
+    post_tx_indices = [i for i, t in enumerate(times_sample) if t > cfg.treatment_end]
+    if post_tx_indices:
+        return slice(post_tx_indices[0], post_tx_indices[-1] + 1)
+
+    return slice(1, len(times_sample))
 
 
 def load_patient_data(cfg: PatientConfig):
@@ -137,18 +153,8 @@ def build_patient_report(cfg: PatientConfig) -> None:
     wbc_df, treatment_df, cluster_ccf_df, abundance_df, mcmc_df, tree_df = load_patient_data(cfg)
     wbc_patient_df, times_sample, cll_counts, wbc_counts, all_times = filter_patient_data(wbc_df, cfg.patient_id)
 
-    cll_plot = plotly_helper.plot_CLL_count(
-        cfg.patient_id,
-        times_sample,
-        cll_counts,
-        cfg.umi_start,
-        cfg.umi_end,
-        cfg.treatment_start,
-        cfg.treatment_end,
-    )
-    
     metadata_table = plotly_helper.plot_metadata_table(wbc_patient_df, cfg.patient_id)
-    tree_plot = plotly_helper.plot_tree_plotly(tree_df, cfg.tree_choice)
+
     ccf_plot = plotly_helper.plot_ccf(cluster_ccf_df, times_sample, treatment_df)
     combined_ccf_tree = plotly_helper.plot_ccf_tree_combined(
         tree_df=tree_df,
@@ -158,7 +164,15 @@ def build_patient_report(cfg: PatientConfig) -> None:
         treatment_df=treatment_df,
         branch_annotations=cfg.branch_annotations,
     )
-
+    cll_plot = plotly_helper.plot_CLL_count(
+        cfg.patient_id,
+        times_sample,
+        cll_counts,
+        cfg.umi_start,
+        cfg.umi_end,
+        cfg.treatment_start,
+        cfg.treatment_end,
+    )
     cluster_list, cluster_abundance = model_helper.get_abundance(abundance_df, mcmc_df, cfg.sample_ids)
     _, log_subclone = model_helper.calc_subclone(cll_counts, cluster_abundance, cluster_list)
 
@@ -198,16 +212,94 @@ def build_patient_report(cfg: PatientConfig) -> None:
         cfg.treatment_end,
     )
 
+    wbc_patient_df["CLL count estm"] = pd.to_numeric(
+        wbc_patient_df["CLL count estm"], errors="coerce"
+    )
+    times_sliced_after = [
+        int(value)
+        for value in wbc_patient_df.loc[
+            wbc_patient_df["CLL count estm"] > 0, "Time_since_start_tx"
+        ]
+        if int(value) > 0
+    ]
+    wbc_model = [
+        float(val)
+        for val in wbc_patient_df.loc[
+            wbc_patient_df["Time_since_start_tx"] > cfg.treatment_end,
+            "CLL count estm",
+        ]
+        if not pd.isna(val) and val > 0
+    ]
+
+    extra_plots: List[str] = []
+    if wbc_model and times_sliced_after:
+        index_slice = _resolve_index_slice(cfg, times_sample)
+        start = max(0, index_slice.start or 0)
+        stop = index_slice.stop if index_slice.stop is not None else len(times_sample)
+        stop = max(start + 1, min(stop, len(times_sample)))
+        index_slice = slice(start, stop)
+
+        try:
+            X, y = model_helper.create_inputs(
+                times_sliced_after,
+                log_subclone_mcmc,
+                cfg.model_iteration,
+                index_slice,
+                times_sample,
+            )
+            logsumexp_points = np.log(wbc_model)
+            multi_cluster_model = model_helper.MultiClusterLinearRegression(
+                len(cluster_list),
+                X,
+                y,
+            )
+            multi_cluster_model.fit(logsumexp_points)
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[WARN] skipping new-model plots for {cfg.patient_id}: {exc}")
+        else:
+            extra_plots.append(
+                plotly_helper.plot_subclones_new_model(
+                    cluster_list,
+                    times_sample,
+                    wbc_model,
+                    log_subclone,
+                    extrapolate_start_idx,
+                    times_after_treatment,
+                    times_sliced_after,
+                    treatment_df,
+                    cfg.treatment_end,
+                    multi_cluster_model,
+                    cfg.fi_modeling,
+                )
+            )
+            extra_plots.append(
+                plotly_helper.plot_mcmc_model(
+                    cluster_list,
+                    index_slice,
+                    times_after_treatment,
+                    times_sample,
+                    times_sliced_after,
+                    cfg.sample_ids,
+                    wbc_model,
+                    log_subclone_mcmc,
+                    treatment_df,
+                    cfg.treatment_end,
+                    cfg.fi_modeling,
+                )
+            )
+
+    plots = [
+        metadata_table,
+        ccf_plot,
+        combined_ccf_tree,
+        cll_plot,
+        subclone_plot,
+        linear_model_plot,
+    ]
+    plots.extend(extra_plots)
+
     plotly_helper.create_html_file(
-        [
-            cll_plot,
-            metadata_table,
-            tree_plot,
-            ccf_plot,
-            combined_ccf_tree,
-            subclone_plot,
-            linear_model_plot,
-        ],
+        plots,
         output_file=str(cfg.output_html),
     )
 
@@ -225,6 +317,15 @@ def load_config(path: Path) -> Iterable[PatientConfig]:
             if entry.get(key):
                 entry[key] = Path(entry[key])
         entry["fludarabine_windows"] = [tuple(win) for win in entry.get("fludarabine_windows", [])]
+        
+        if entry.get("index_samples_model") is not None:
+            values = entry["index_samples_model"]
+            if isinstance(values, (list, tuple)):
+                if len(values) == 1:
+                    values = (values[0], None)
+                entry["index_samples_model"] = tuple(values)
+            else:
+                raise ValueError("index_samples_model must be a list or tuple")
         yield PatientConfig(**entry)
 
 
