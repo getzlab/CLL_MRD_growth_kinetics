@@ -1,0 +1,19 @@
+{
+    "patient_id": "CLL14-1063",
+    "wbc_file": "data/gcll/Copy of CLL14 CLL cell count 07102025 v4_Liang.csv",
+    "treatment_file": "data/gcll/GCLL_treatment.txt",
+    "sample_ids": [
+      "CLL14-1063-Tumor-01-pair",
+      "SM-OE382",
+      "SM-OE383_CLL14-1063-Normal_pair",
+      "CLL14-1063-Tumor-02-pair"
+    ],
+    "output_html": "outputs/current/html_reports/CLL14-1063_report.html",
+    "umi_start": 1,
+    "umi_end": 3,
+    "treatment_start": 0,
+    "treatment_end": 330,
+    "tree_choice": 4
+
+  }
+  
