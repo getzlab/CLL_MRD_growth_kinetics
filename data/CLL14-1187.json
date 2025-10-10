@@ -1,0 +1,22 @@
+[
+    {
+      "patient_id": "CLL14-1187",
+      "wbc_file": "data/gcll/CLL14 CLL cell count 10022025.csv",
+      "treatment_file": "data/gcll/GCLL_treatment.txt",
+      "sample_ids": [
+        "CLL14-1187-Tumor-01-pair",
+        "SM-ODX2H",
+        "SM-ODX2I",
+        "CLL14-1187-Tumor-02-pair"
+      ],
+      "output_html": "outputs/current/html_reports/CLL14-1187_report.html",
+      "umi_start": 1,
+      "umi_end": 3,
+      "treatment_start": 0,
+      "treatment_end": 313,
+      "tree_choice": 1,
+      "index_samples_model": [1, 4],
+      "model_iteration": 2,
+      "fi_modeling": false
+    }
+  ]

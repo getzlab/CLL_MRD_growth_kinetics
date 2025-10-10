@@ -14,3 +14,17 @@ This repository collects the exploratory and production material for the CLL MRD
 
 
 
+## Automation Scripts
+
+- `scripts/run_cell_population.py` – fetches the Cell Population inputs (cluster CCFs, mutation CCFs, SIF, build_tree_posteriors) for a patient from a Terra workspace via `dalmatian`, then runs `PhylogicNDT.py CellPopulation`. Example:
+  ```bash
+  scripts/run_cell_population.py CLL14-1056 broad-firecloud-ibmwatson/TAG_CLL_Clonal_Kinetic_UMI_PrAN --tree-number 4
+  ```
+  Append `--dry-run` to preview the downloads and command without executing anything.
+
+- `scripts/build_patient_report.py` – renders the Plotly report from a JSON configuration. Point it at a config (single patient or list) with your data paths and options, then run:
+  ```bash
+  python scripts/build_patient_report.py --config data/patient_config.json
+  ```
+  Reports land in `outputs/current/html_reports/`. Optional config fields let you control tree selection, modelling behaviour (`fi_modeling`), and which post-treatment samples feed the linear fits.
+

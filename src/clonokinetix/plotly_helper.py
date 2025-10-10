@@ -581,6 +581,11 @@ def plot_subclones(clusters, times_sample, CLL_count_sample, log_subclone_sample
         extrapolate_year = [i / 365 for i in np.array(extrapolate_times)]
         extrapolate_subclone = log_subclone_sample[i][extrapolate_start_idx:]
 
+        # Skip extrapolation if no data points
+        if len(extrapolate_year) == 0 or len(extrapolate_subclone) == 0:
+            predicted_end_tx_clones.append(0.0)
+            continue
+
         # Fit a linear model for extrapolation
         linear_model = np.polyfit(extrapolate_year, extrapolate_subclone, 1)
         predict_year = [i / 365 for i in np.array(times_aft_tx)]
@@ -1040,6 +1045,11 @@ def plot_subclones_new_model(clusters, times_sample, wbc_model, log_subclone_sam
         extrapolate_times = times_sample[extrapolate_start_idx:]
         extrapolate_year = [i / 365 for i in np.array(extrapolate_times)]
         extrapolate_subclone = log_subclone_sample[i][extrapolate_start_idx:]
+
+        # Skip extrapolation if no data points
+        if len(extrapolate_year) == 0 or len(extrapolate_subclone) == 0:
+            predicted_end_tx_clones.append(0.0)
+            continue
 
         # Fit a linear model for extrapolation
         linear_model = np.polyfit(extrapolate_year, extrapolate_subclone, 1)

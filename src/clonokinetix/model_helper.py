@@ -163,7 +163,13 @@ def get_abundance(abundance, mcmc, sample_list):
         cluster_abundances = []
         ## iterate through the samples in the wbc file to make sure the order is correct
         for sample_name in sample_list:
-            sample_abundances = float(abundances[abundances.Sample_ID == sample_name].Cell_abundance.iloc[0])
+            sample_data = abundances[abundances.Sample_ID == sample_name]
+            if len(sample_data) == 0:
+                print(f"Warning: Sample '{sample_name}' not found in abundance data for cluster {cluster_id}")
+                print(f"Available samples: {abundances['Sample_ID'].unique()}")
+                cluster_abundances.append(0.0)  # Use 0 as default
+                continue
+            sample_abundances = float(sample_data.Cell_abundance.iloc[0])
             cluster_abundances.append(sample_abundances / 100)
         cluster_abundance[cluster_id] = cluster_abundances
 
