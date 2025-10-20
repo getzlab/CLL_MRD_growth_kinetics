@@ -1,6 +1,18 @@
 # Fludarabine MRD Analysis
 
-This repository collects the exploratory and production material for the CLL MRD growth kinetics projects.
+This repository collects the exploratory material for the CLL MRD growth kinetics projects.
+
+## Setup
+
+1. Install Python dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+2. Authenticate with Google Cloud (required for accessing Terra workspaces):
+```bash
+gcloud auth login
+```
 
 ## Repository layout
 - `notebooks/` – all Jupyter notebooks grouped by project (`crc`, `fi`, `gcll`, `misc`, and `autogen`).
@@ -16,7 +28,8 @@ This repository collects the exploratory and production material for the CLL MRD
 
 ## Scripts
 
-- `scripts/run_cell_population.py` – fetches the Cell Population inputs (cluster CCFs, mutation CCFs, sif, build_tree_posteriors) for a patient from a Terra workspace via `dalmatian`, then runs `python run_cell_population.py`. Example:
+
+- `scripts/run_cell_population.py` – fetches the Cell Population inputs (cluster CCFs, mutation CCFs, sif, build_tree_posteriors) for a patient from Terra workspace via `dalmatian`, then runs `python run_cell_population.py`. Example:
   ```bash
   scripts/run_cell_population.py CLL14-1056 broad-firecloud-ibmwatson/TAG_CLL_Clonal_Kinetic_UMI_PrAN --tree-number 4
   ```
