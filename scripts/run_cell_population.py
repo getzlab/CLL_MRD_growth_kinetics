@@ -1,11 +1,8 @@
-#!/usr/bin/env python3
-"""Utility to fetch Cell Population inputs from Terra and run the solver."""
-
 import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable
 
 from dalmatian.wmanager import WorkspaceManager
 
@@ -116,18 +113,18 @@ def main() -> None:
         raise SystemExit(f"Patient {args.patient_id} not found in workspace {args.workspace}")
     participant_row = participants.loc[args.patient_id]
 
-    urls: Dict[str, str] = {}
+    urls = {}
     for kind, candidates in FILE_FIELD_CANDIDATES.items():
         try:
             urls[kind] = pick_participant_value(participant_row, candidates, kind)
         except KeyError as err:
             raise SystemExit(str(err)) from err
 
-    local_paths: Dict[str, Path] = {}
+    local_paths = {}
     for kind, url in urls.items():
         filename = DEFAULT_FILENAMES[kind].format(patient_id=args.patient_id)
         dest = output_dir / filename
-        download_gcs(url, dest, dry_run=args.dry_run)
+        download_gcs(url, dest)
         local_paths[kind] = dest
 
     run_cell_population(
