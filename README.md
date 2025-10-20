@@ -14,7 +14,7 @@ This repository collects the exploratory and production material for the CLL MRD
 
 
 
-## Automation Scripts
+## Scripts
 
 - `scripts/run_cell_population.py` – fetches the Cell Population inputs (cluster CCFs, mutation CCFs, sif, build_tree_posteriors) for a patient from a Terra workspace via `dalmatian`, then runs `python run_cell_population.py`. Example:
   ```bash

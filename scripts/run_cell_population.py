@@ -9,6 +9,7 @@ from typing import Dict, Iterable, Optional
 
 from dalmatian.wmanager import WorkspaceManager
 
+# Added a few fallback columns to handle different names used in the workspace.
 FILE_FIELD_CANDIDATES: Dict[str, Iterable[str]] = {
     "cluster_ccfs": (
         "cluster_ccfs",
@@ -47,13 +48,11 @@ def pick_participant_value(row, candidates: Iterable[str], kind: str) -> str:
         f"Unable to locate a value for '{kind}'. Tried columns: {', '.join(candidates)}"
     )
 
-
-def download_gcs(uri: str, dest: Path, *, dry_run: bool = False) -> None:
+# Download files via gsutil into the destination directory
+def download_gcs(url: str, dest: Path, ):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dry_run:
-        print(f"[DRY-RUN] gsutil cp {uri} {dest}")
-        return
-    cmd = ["gsutil", "cp", uri, str(dest)]
+    
+    cmd = ["gsutil", "cp", url, str(dest)]
     subprocess.run(cmd, check=True)
 
 
@@ -64,9 +63,8 @@ def run_cell_population(
     cluster_ccf: Path,
     tree_tsv: Path,
     tree_number: int,
-    *,
-    dry_run: bool = False,
-) -> None:
+    
+):
     root = Path(__file__).resolve().parents[1]
     cell_pop_dir = root / "Cell_Population"
     cli = [
@@ -86,9 +84,7 @@ def run_cell_population(
         "--tree_number",
         str(tree_number),
     ]
-    if dry_run:
-        print("[DRY-RUN]", " ".join(cli))
-        return
+    
     subprocess.run(cli, check=True, cwd=cell_pop_dir)
 
 
@@ -108,11 +104,7 @@ def main() -> None:
         default=Path("Cell_Population"),
         help="Directory where input files should be written (default: Cell_Population)",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print the actions that would be taken without downloading or running",
-    )
+    
     args = parser.parse_args()
 
     output_dir: Path = args.output_dir
@@ -124,18 +116,18 @@ def main() -> None:
         raise SystemExit(f"Patient {args.patient_id} not found in workspace {args.workspace}")
     participant_row = participants.loc[args.patient_id]
 
-    uris: Dict[str, str] = {}
+    urls: Dict[str, str] = {}
     for kind, candidates in FILE_FIELD_CANDIDATES.items():
         try:
-            uris[kind] = pick_participant_value(participant_row, candidates, kind)
+            urls[kind] = pick_participant_value(participant_row, candidates, kind)
         except KeyError as err:
             raise SystemExit(str(err)) from err
 
     local_paths: Dict[str, Path] = {}
-    for kind, uri in uris.items():
+    for kind, url in urls.items():
         filename = DEFAULT_FILENAMES[kind].format(patient_id=args.patient_id)
         dest = output_dir / filename
-        download_gcs(uri, dest, dry_run=args.dry_run)
+        download_gcs(url, dest, dry_run=args.dry_run)
         local_paths[kind] = dest
 
     run_cell_population(
@@ -145,14 +137,8 @@ def main() -> None:
         cluster_ccf=local_paths["cluster_ccfs"],
         tree_tsv=local_paths["build_tree_posteriors"],
         tree_number=args.tree_number,
-        dry_run=args.dry_run,
+        
     )
-
-    if not args.dry_run:
-        print(
-            f"Completed CellPopulation for {args.patient_id}. "
-            f"Inputs downloaded to {output_dir.resolve()}"
-        )
 
 
 if __name__ == "__main__":
