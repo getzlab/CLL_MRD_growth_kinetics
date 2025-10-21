@@ -3,58 +3,18 @@ from .helper import *
 from matplotlib import pyplot as plt
 import dalmatian
 import numpy as np
-def load_wbc_file(file):
-    """
-    Parse wbc file
+from typing import Dict, List, Sequence
+from scipy.optimize import OptimizeResult, minimize
+from scipy.special import logsumexp
 
-    Args:
-        wbc file
-
-    Returns:
-        variables as a list
-
-    """
-
-    df = pd.read_csv(file, sep='\t')
-
-    # Get all time points
-    times = df.dfd.tolist()
-
-    # Get times that are in the interpolation range
-    t = pd.notna(df['sample_id'])
-    sample_time_index = [i for i, x in enumerate(t) if x]
-    first_sample_index = sample_time_index[0]
-    last_sample_index = sample_time_index[-1]
-    df_interpolate = df.iloc[first_sample_index:last_sample_index + 1, :]
-    times_interpolate = df_interpolate.dfd.tolist()
-    wbc_interpolate = df_interpolate.wbc.tolist()
-
-    # Get all wbc points
-    wbc = df.wbc.tolist()
-
-    # Get the sample list
-    sample_list = df.sample_id[pd.notna(df.sample_id)].tolist()
-
-    # Get the times at sample points
-    times_sample = df.dfd[pd.notna(df.sample_id)].tolist()
-
-    # Get the wbc at sample points
-    wbc_sample = df.wbc[pd.notna(df.sample_id)].tolist()
-
-    # Get the times that are not at sample points
-    times_others = sorted(list(set(times) - set(times_sample)))
-
-    return times_sample, times, times_interpolate, wbc, wbc_interpolate, sample_list, wbc_sample, times_others
-
-
+default_workspace = 'broad-firecloud-ibmwatson/TAG_CLL_Clonal_Kinetic_UMI_PrAN'
 # Function to load data
-def load_data(patient_id, wbc_file, treatment_file):
+def load_data(patient_id: str, wbc_file: str, treatment_file: str, *, workspace: str = default_workspace):
     # Load WBC and treatment data
     wbc_df = pd.read_csv(wbc_file)
     treatment_df = pd.read_csv(treatment_file, sep='\t')
 
     # Get input files from Terra through dalmatian
-    workspace = 'broad-firecloud-ibmwatson/TAG_CLL_Clonal_Kinetic_UMI_PrAN'
     wm = dalmatian.WorkspaceManager(workspace)
     participants = wm.get_participants()
 
@@ -71,13 +31,14 @@ def load_data(patient_id, wbc_file, treatment_file):
 def filter_patient_data(wbc_df, patient_id):
     wbc_df_patient = wbc_df[wbc_df['Patient'] == patient_id]
     wbc_df_patient.reset_index(drop=True, inplace=True)
-    times_sample = [int(i) for i in wbc_df_patient.loc[wbc_df_patient.Sample.notna(), 'Time_since_start_tx'].tolist()]
-    wbc_all = [float(i) for i in wbc_df_patient['WBC'].tolist()]
+    
 
-    CLL_count = [float(i) for i in wbc_df_patient.loc[wbc_df_patient.Sample.notna(), 'CLL count estm'].tolist()]
+    times_sample = [int(i) for i in wbc_df_patient.loc[wbc_df_patient.Sample.notna(), 'Time_since_start_tx'].tolist()]
+    cll_count = [float(i) for i in wbc_df_patient.loc[wbc_df_patient.Sample.notna(), 'CLL count estm'].tolist()]
+    wbc_all = [float(i) for i in wbc_df_patient['WBC'].tolist()]
     all_times = [int(i) for i in wbc_df_patient['Time_since_start_tx'].to_list()]
 
-    return wbc_df_patient, times_sample, CLL_count, wbc_all, all_times
+    return wbc_df_patient, times_sample, cll_count, wbc_all, all_times
 
 
 def plot_ccf(df, ax, times_sample, treatment):
@@ -133,7 +94,7 @@ def plot_ccf(df, ax, times_sample, treatment):
         ax.axvspan(xmin=start, xmax=end, facecolor=cmap(i), alpha=0.2)
 
 
-def get_abundance(abundance, mcmc, sample_list):
+def get_abundance(abundance: pd.DataFrame, mcmc: pd.DataFrame, sample_list: Sequence[str]):
     """
     Parse abundance file and get abundance information and calculate interpolated abundance
 
@@ -177,7 +138,7 @@ def get_abundance(abundance, mcmc, sample_list):
     return cluster_list, cluster_abundance
 
 
-def calc_subclone(wbc, abundance, cluster_list, input_type="default"):
+def calc_subclone(wbc, abundance, cluster_list, *, input_type="default",epsilon=1e-4):
     """
     Calculate subclone abundance from cluster abundance
 
@@ -195,7 +156,7 @@ def calc_subclone(wbc, abundance, cluster_list, input_type="default"):
 
     if input_type == "default":
         for cluster_id in cluster_list:
-            subclone_population[cluster_id] = [_wbc * (_abundance + 1e-4) for _wbc, _abundance in
+            subclone_population[cluster_id] = [_wbc * (_abundance + epsilon) for _wbc, _abundance in
                                                zip(wbc, abundance[cluster_id])]
 
             log_subclone[cluster_id] = [np.log(item) for item in subclone_population[cluster_id]]
@@ -207,7 +168,7 @@ def calc_subclone(wbc, abundance, cluster_list, input_type="default"):
             log_subclone_per_iter = {}
 
             for iter_idx in range(250):
-                subclone_population_per_iter[iter_idx] = [_wbc * (_abundance + 1e-4) for _wbc, _abundance in
+                subclone_population_per_iter[iter_idx] = [_wbc * (_abundance + epsilon) for _wbc, _abundance in
                                                           zip(wbc, abundance[cluster_id][iter_idx])]
 
                 log_subclone_per_iter[iter_idx] = [np.log(item) for item in subclone_population_per_iter[iter_idx]]
@@ -218,7 +179,7 @@ def calc_subclone(wbc, abundance, cluster_list, input_type="default"):
     return subclone_population, log_subclone
 
 
-def get_all_abundance(cluster_list, mcmc_df, sample_list, times_sample):
+def get_all_abundance(cluster_list, mcmc_df, sample_list):
     """
     Get cell abundance and interpolated cell abundance from all mcmc iterations
 
@@ -252,9 +213,7 @@ def get_all_abundance(cluster_list, mcmc_df, sample_list, times_sample):
 
 # New model
 
-import numpy as np
-from scipy.special import logsumexp
-from scipy.optimize import minimize
+
 import logging
 
 # Set up logging
@@ -263,7 +222,7 @@ logger = logging.getLogger(__name__)
 
 
 class MultiClusterLinearRegression:
-    def __init__(self, n_clusters, X, y):
+    def __init__(self, n_clusters: int , X, y):
         """
         Initialize the multi-cluster linear regression model.
 
