@@ -176,7 +176,7 @@ def build_patient_report(cfg: PatientConfig) -> None:
     cluster_list, cluster_abundance = model_helper.get_abundance(abundance_df, mcmc_df, cfg.sample_ids)
     _, log_subclone = model_helper.calc_subclone(cll_counts, cluster_abundance, cluster_list)
 
-    mcmc_abundance = model_helper.get_all_abundance(cluster_list, mcmc_df, cfg.sample_ids, times_sample)
+    mcmc_abundance = model_helper.get_all_abundance(cluster_list, mcmc_df, cfg.sample_ids)
     noisy_mcmc_abundance = add_uniform_noise(mcmc_abundance, cfg.noise_low, cfg.noise_high, cfg.noise_seed)
     noisy_mcmc_abundance = transpose_iterations(noisy_mcmc_abundance)
 
@@ -225,7 +225,7 @@ def build_patient_report(cfg: PatientConfig) -> None:
     wbc_model = [
         float(val)
         for val in wbc_patient_df.loc[
-            wbc_patient_df["Time_since_start_tx"] > cfg.treatment_end,
+            wbc_patient_df["Time_since_start_tx"].isin(times_sliced_after),
             "CLL count estm",
         ]
         if not pd.isna(val) and val > 0
