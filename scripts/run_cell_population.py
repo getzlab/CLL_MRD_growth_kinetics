@@ -101,31 +101,74 @@ def main() -> None:
         default=Path("Cell_Population"),
         help="Directory where input files should be written (default: Cell_Population)",
     )
+    parser.add_argument(
+        "--cluster-ccf",
+        type=Path,
+        help="Path to a local cluster CCF file. If provided, the file is used instead of downloading from Terra.",
+    )
+    parser.add_argument(
+        "--mut-ccf",
+        type=Path,
+        help="Path to a local mutation CCF file. If provided, the file is used instead of downloading from Terra.",
+    )
+    parser.add_argument(
+        "--sif",
+        type=Path,
+        help="Path to a local SIF file. If provided, the file is used instead of downloading from Terra.",
+    )
+    parser.add_argument(
+        "--tree-tsv",
+        type=Path,
+        help="Path to a local tree TSV (build_tree_posteriors). If provided, the file is used instead of downloading from Terra.",
+    )
     
     args = parser.parse_args()
 
-    output_dir: Path = args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    wm = WorkspaceManager(args.workspace)
-    participants = wm.get_participants()
-    if args.patient_id not in participants.index:
-        raise SystemExit(f"Patient {args.patient_id} not found in workspace {args.workspace}")
-    participant_row = participants.loc[args.patient_id]
-
-    urls = {}
-    for kind, candidates in FILE_FIELD_CANDIDATES.items():
-        try:
-            urls[kind] = pick_participant_value(participant_row, candidates, kind)
-        except KeyError as err:
-            raise SystemExit(str(err)) from err
-
     local_paths = {}
-    for kind, url in urls.items():
-        filename = DEFAULT_FILENAMES[kind].format(patient_id=args.patient_id)
-        dest = output_dir / filename
-        download_gcs(url, dest)
-        local_paths[kind] = dest
+    provided_overrides = {
+        "cluster_ccfs": args.cluster_ccf,
+        "mut_ccfs": args.mut_ccf,
+        "sif": args.sif,
+        "build_tree_posteriors": args.tree_tsv,
+    }
+
+    for kind, path in provided_overrides.items():
+        if path is not None:
+            resolved = path.expanduser()
+            if not resolved.exists():
+                raise SystemExit(f"Provided path for {kind.replace('_', ' ')} does not exist: {resolved}")
+            local_paths[kind] = resolved
+
+    missing_kinds = [kind for kind in FILE_FIELD_CANDIDATES if kind not in local_paths]
+
+    if missing_kinds:
+        output_dir: Path = args.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        wm = WorkspaceManager(args.workspace)
+        participants = wm.get_participants()
+        if args.patient_id not in participants.index:
+            raise SystemExit(f"Patient {args.patient_id} not found in workspace {args.workspace}")
+        participant_row = participants.loc[args.patient_id]
+
+        urls = {}
+        for kind in missing_kinds:
+            candidates = FILE_FIELD_CANDIDATES[kind]
+            try:
+                urls[kind] = pick_participant_value(participant_row, candidates, kind)
+            except KeyError as err:
+                raise SystemExit(str(err)) from err
+
+        for kind, url in urls.items():
+            filename = DEFAULT_FILENAMES[kind].format(patient_id=args.patient_id)
+            dest = output_dir / filename
+            download_gcs(url, dest)
+            local_paths[kind] = dest
+
+    # Ensure all required inputs are present before running
+    missing_after_download = [kind for kind in FILE_FIELD_CANDIDATES if kind not in local_paths]
+    if missing_after_download:
+        raise SystemExit(f"Missing required inputs: {', '.join(missing_after_download)}")
 
     run_cell_population(
         args.patient_id,
