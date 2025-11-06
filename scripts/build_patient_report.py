@@ -2,6 +2,7 @@
 import argparse
 import json
 import random
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -16,7 +17,6 @@ from clonokinetix import model_helper, plotly_helper
 class PatientConfig:
     patient_id: str
     wbc_file: Path
-    treatment_file: Path
     sample_ids: Sequence[str]
     output_html: Path
 
@@ -26,6 +26,7 @@ class PatientConfig:
     treatment_end: int
     tree_choice: int
 
+    treatment_file: Optional[Path] = None
     branch_annotations: Dict[int, str] = field(default_factory=dict)
     fludarabine_windows: Sequence[Tuple[int, int]] = field(default_factory=tuple)
 
@@ -83,6 +84,53 @@ def transpose_iterations(noisy: Dict[int, Dict[int, List[float]]]) -> Dict[int, 
     return recomposed
 
 
+def _validate_treatment_window(cfg: PatientConfig, wbc_df: pd.DataFrame) -> None:
+    patient_rows = wbc_df[wbc_df["Patient"] == cfg.patient_id]
+    if patient_rows.empty:
+        raise ValueError(f"No rows found for patient {cfg.patient_id} in WBC file {cfg.wbc_file}")
+
+    start_values = patient_rows["Start of treatment"].dropna().astype(str).str.strip()
+    end_values = patient_rows["End of treatment"].dropna().astype(str).str.strip()
+
+    if start_values.empty or end_values.empty:
+        # If either date is missing we cannot validate; surface a clear error
+        raise ValueError(
+            f"Missing treatment start/end dates for patient {cfg.patient_id} in WBC file {cfg.wbc_file}"
+        )
+
+    start_date = pd.to_datetime(start_values.iloc[0], errors="coerce")
+    end_date = pd.to_datetime(end_values.iloc[0], errors="coerce")
+    if pd.isna(start_date) or pd.isna(end_date):
+        raise ValueError(
+            f"Unable to parse treatment dates for patient {cfg.patient_id}: "
+            f"start='{start_values.iloc[0]}', end='{end_values.iloc[0]}'"
+        )
+
+    observed_duration = int((end_date - start_date).days)
+    if observed_duration != cfg.treatment_end:
+        raise ValueError(
+            f"Configured treatment_end ({cfg.treatment_end}) for patient {cfg.patient_id} "
+            f"does not match duration between Start of treatment ({start_date.date()}) and "
+            f"End of treatment ({end_date.date()}) in '{cfg.wbc_file}' ({observed_duration} days)."
+        )
+
+
+def _validate_sample_counts(cfg: PatientConfig, patient_df: pd.DataFrame) -> None:
+    """Ensure JSON-configured samples match the number of WBC samples."""
+    if not cfg.sample_ids:
+        return
+    wbc_samples = (
+        patient_df.loc[patient_df["Sample"].notna(), "Sample"]
+        .astype(str)
+        .tolist()
+    )
+    if len(cfg.sample_ids) != len(wbc_samples):
+        raise ValueError(
+            f"Sample count mismatch for patient {cfg.patient_id}: "
+            f"{len(cfg.sample_ids)} identifiers in config vs {len(wbc_samples)} WBC samples."
+        )
+
+
 def _resolve_index_slice(cfg: PatientConfig, times_sample: Sequence[int]) -> slice:
     if cfg.index_samples_model is not None:
         start, stop = cfg.index_samples_model
@@ -97,7 +145,20 @@ def _resolve_index_slice(cfg: PatientConfig, times_sample: Sequence[int]) -> sli
 
 def load_patient_data(cfg: PatientConfig):
     wbc_df = pd.read_csv(cfg.wbc_file)
-    treatment_df = pd.read_csv(cfg.treatment_file, sep="\t")
+    if cfg.treatment_file:
+        treatment_df = pd.read_csv(cfg.treatment_file, sep="\t")
+    else:
+        treatment_df = pd.DataFrame(
+            [
+                {
+                    "tx": "Treatment",
+                    "tx_start": cfg.treatment_start,
+                    "tx_end": cfg.treatment_end,
+                }
+            ]
+        )
+
+    _validate_treatment_window(cfg, wbc_df)
 
     if cfg.workspace:
         from dalmatian.wmanager import WorkspaceManager  # optional
@@ -149,9 +210,33 @@ def filter_patient_data(wbc_df: pd.DataFrame, patient_id: str):
     return patient_df, times_sample, cll_count, wbc_all, all_times
 
 
+def _extract_treatment_label(patient_df: pd.DataFrame) -> Optional[str]:
+    if "Treatment" not in patient_df.columns:
+        return None
+
+    treatments = (
+        patient_df["Treatment"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+    unique_non_empty = [value for value in treatments if value]
+    if not unique_non_empty:
+        return None
+
+    # Preserve first occurrence order while collapsing duplicates
+    return next(iter(dict.fromkeys(unique_non_empty)))
+
+
 def build_patient_report(cfg: PatientConfig) -> None:
     wbc_df, treatment_df, cluster_ccf_df, abundance_df, mcmc_df, tree_df = load_patient_data(cfg)
     wbc_patient_df, times_sample, cll_counts, wbc_counts, all_times = filter_patient_data(wbc_df, cfg.patient_id)
+    _validate_sample_counts(cfg, wbc_patient_df)
+
+    treatment_label = _extract_treatment_label(wbc_patient_df)
+    if treatment_label:
+        treatment_df = treatment_df.copy()
+        treatment_df["tx"] = treatment_label
 
     metadata_table = plotly_helper.plot_metadata_table(wbc_patient_df, cfg.patient_id)
 
@@ -176,6 +261,7 @@ def build_patient_report(cfg: PatientConfig) -> None:
         cfg.umi_end,
         cfg.treatment_start,
         cfg.treatment_end,
+        treatment_label=treatment_label,
     )
     cluster_list, cluster_abundance = model_helper.get_abundance(abundance_df, mcmc_df, cfg.sample_ids)
     _, log_subclone = model_helper.calc_subclone(cll_counts, cluster_abundance, cluster_list)
@@ -219,21 +305,22 @@ def build_patient_report(cfg: PatientConfig) -> None:
     wbc_patient_df["CLL count estm"] = pd.to_numeric(
         wbc_patient_df["CLL count estm"], errors="coerce"
     )
-    times_sliced_after = [
-        int(value)
-        for value in wbc_patient_df.loc[
-            wbc_patient_df["CLL count estm"] > 0, "Time_since_start_tx"
-        ]
-        if int(value) > 0
-    ]
-    wbc_model = [
-        float(val)
-        for val in wbc_patient_df.loc[
-            wbc_patient_df["Time_since_start_tx"].isin(times_sliced_after),
-            "CLL count estm",
-        ]
-        if not pd.isna(val) and val > 0
-    ]
+    post_treatment_mask = (
+        (wbc_patient_df["CLL count estm"] > 0)
+        & (wbc_patient_df["Time_since_start_tx"] > cfg.treatment_end)
+    )
+    times_sliced_after = (
+        wbc_patient_df.loc[post_treatment_mask, "Time_since_start_tx"]
+        .dropna()
+        .astype(int)
+        .tolist()
+    )
+    wbc_model = (
+        wbc_patient_df.loc[post_treatment_mask, "CLL count estm"]
+        .dropna()
+        .astype(float)
+        .tolist()
+    )
 
     extra_plots: List[str] = []
     if wbc_model and times_sliced_after:
@@ -302,9 +389,19 @@ def build_patient_report(cfg: PatientConfig) -> None:
     ]
     plots.extend(extra_plots)
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    requested_path = Path(cfg.output_html)
+    if requested_path.suffix:
+        output_dir = requested_path.parent
+    else:
+        output_dir = requested_path
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamped_output = output_dir / f"{cfg.patient_id}_report_{timestamp}.html"
+
     plotly_helper.create_html_file(
         plots,
-        output_file=str(cfg.output_html),
+        output_file=str(timestamped_output),
     )
 
 
@@ -314,9 +411,12 @@ def load_config(path: Path) -> Iterable[PatientConfig]:
         data = [data]
     for entry in data:
         entry["wbc_file"] = Path(entry["wbc_file"])
-        entry["treatment_file"] = Path(entry["treatment_file"])
         entry["output_html"] = Path(entry["output_html"])
         entry["sample_ids"] = entry.get("sample_ids") or []
+        if entry.get("treatment_file"):
+            entry["treatment_file"] = Path(entry["treatment_file"])
+        else:
+            entry["treatment_file"] = None
         for key in ("cluster_ccf_path", "tree_posteriors_path", "abundance_path", "mcmc_path"):
             if entry.get(key):
                 entry[key] = Path(entry[key])
