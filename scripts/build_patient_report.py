@@ -131,6 +131,55 @@ def _validate_sample_counts(cfg: PatientConfig, patient_df: pd.DataFrame) -> Non
         )
 
 
+def _parse_tree_edges(edges_str: str) -> set:
+    edges = set()
+    for item in edges_str.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parent_str, child_str = item.split("-")
+        parent = None if parent_str.strip() == "None" else int(parent_str.strip())
+        child = None if child_str.strip() == "None" else int(child_str.strip())
+        edges.add((parent, child))
+    return edges
+
+
+def _derive_edges_from_abundance(abundance_df: pd.DataFrame) -> set:
+    edges = set()
+    cell_pops = abundance_df["Cell_population"].dropna().unique()
+    for label in cell_pops:
+        parts = [part for part in label.split("_") if part.startswith("CL")]
+        if not parts:
+            continue
+        cluster_ids = [int(part[2:]) for part in parts if part[2:].isdigit()]
+        if not cluster_ids:
+            continue
+        edges.add((None, cluster_ids[0]))
+        for parent, child in zip(cluster_ids, cluster_ids[1:]):
+            edges.add((parent, child))
+    return edges
+
+
+def _validate_tree_choice(cfg: PatientConfig, tree_df: pd.DataFrame, abundance_df: pd.DataFrame) -> None:
+    if tree_df.empty or abundance_df.empty:
+        return
+    tree_index = cfg.tree_choice - 1 if cfg.tree_choice > 0 else 0
+    tree_index = max(0, min(tree_index, len(tree_df) - 1))
+    selected_edges_str = tree_df.iloc[tree_index]["edges"]
+    selected_edges = _parse_tree_edges(selected_edges_str)
+    abundance_edges = _derive_edges_from_abundance(abundance_df)
+    if selected_edges != abundance_edges:
+        def _sort_key(edge):
+            parent = -1 if edge[0] is None else edge[0]
+            child = -1 if edge[1] is None else edge[1]
+            return (parent, child)
+        raise ValueError(
+            f"Tree mismatch for patient {cfg.patient_id}: "
+            f"config tree_choice={cfg.tree_choice} yields edges {sorted(selected_edges, key=_sort_key)} "
+            f"but CellPopulation abundances imply {sorted(abundance_edges, key=_sort_key)}."
+        )
+
+
 def _resolve_index_slice(cfg: PatientConfig, times_sample: Sequence[int]) -> slice:
     if cfg.index_samples_model is not None:
         start, stop = cfg.index_samples_model
@@ -232,6 +281,7 @@ def build_patient_report(cfg: PatientConfig) -> None:
     wbc_df, treatment_df, cluster_ccf_df, abundance_df, mcmc_df, tree_df = load_patient_data(cfg)
     wbc_patient_df, times_sample, cll_counts, wbc_counts, all_times = filter_patient_data(wbc_df, cfg.patient_id)
     _validate_sample_counts(cfg, wbc_patient_df)
+    _validate_tree_choice(cfg, tree_df, abundance_df)
 
     treatment_label = _extract_treatment_label(wbc_patient_df)
     if treatment_label:
