@@ -155,10 +155,14 @@ def build_patient_report(cfg: PatientConfig) -> None:
 
     metadata_table = plotly_helper.plot_metadata_table(wbc_patient_df, cfg.patient_id)
 
+    # tree_choice is 1-based for user convenience; clamp to valid 0-based index
+    tree_index = cfg.tree_choice - 1 if cfg.tree_choice > 0 else 0
+    tree_index = max(0, min(tree_index, len(tree_df) - 1))
+
     ccf_plot = plotly_helper.plot_ccf(cluster_ccf_df, times_sample, treatment_df)
     combined_ccf_tree = plotly_helper.plot_ccf_tree_combined(
         tree_df=tree_df,
-        tree_selected=cfg.tree_choice,
+        tree_selected=tree_index,
         ccf_df=cluster_ccf_df,
         times_sample=times_sample,
         treatment_df=treatment_df,
